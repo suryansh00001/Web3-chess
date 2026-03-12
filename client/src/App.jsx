@@ -1,47 +1,89 @@
 import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import ChessGame from './components/ChessGame'
 import RoomSetup from './components/RoomSetup'
+import Home from './components/Home'
 
 function App() {
+  const [appState, setAppState] = useState('home'); // 'home' | 'setup' | 'game'
   const [gameState, setGameState] = useState({
-    isInRoom: false,
     roomId: null,
     playerColor: null
   });
 
+  const handlePlayNow = () => setAppState('setup');
+  
   const handleJoinRoom = (roomId, color) => {
-    setGameState({
-      isInRoom: true,
-      roomId,
-      playerColor: color
-    });
+    setGameState({ roomId, playerColor: color });
+    setAppState('game');
   };
 
   const handleLeaveRoom = () => {
-    setGameState({
-      isInRoom: false,
-      roomId: null,
-      playerColor: null
-    });
+    setGameState({ roomId: null, playerColor: null });
+    setAppState('setup');
   };
 
+  const handleBackToHome = () => setAppState('home');
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
-      <div className="container mx-auto px-4 py-8">
-        <h1 className="text-5xl font-bold text-center mb-12 bg-gradient-to-r from-chess-secondary to-chess-accent bg-clip-text text-transparent">
-          ♔ Web3 Chess DApp ♚
-        </h1>
+    <div className="min-h-screen bg-[#0d1117] text-gray-100 font-sans">
+      <AnimatePresence mode="wait">
         
-        {!gameState.isInRoom ? (
-          <RoomSetup onJoinRoom={handleJoinRoom} />
-        ) : (
-          <ChessGame 
-            roomId={gameState.roomId}
-            playerColor={gameState.playerColor}
-            onLeaveRoom={handleLeaveRoom}
-          />
+        {appState === 'home' && (
+          <motion.div
+            key="home"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
+          >
+            <Home onPlay={handlePlayNow} />
+          </motion.div>
         )}
-      </div>
+
+        {appState === 'setup' && (
+          <motion.div
+            key="setup"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="container mx-auto px-4 py-12 relative z-10"
+          >
+            {/* Background Orbs */}
+            <div className="absolute top-0 right-0 w-96 h-96 bg-purple-900/10 rounded-full blur-[100px] -z-10 pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-96 h-96 bg-blue-900/10 rounded-full blur-[100px] -z-10 pointer-events-none" />
+            
+            <button 
+              onClick={handleBackToHome}
+              className="absolute top-4 left-4 text-gray-400 hover:text-white transition-colors text-sm font-medium flex items-center gap-2"
+            >
+              ← Back to Home
+            </button>
+            
+            <div className="mt-8">
+              <RoomSetup onJoinRoom={handleJoinRoom} />
+            </div>
+          </motion.div>
+        )}
+
+        {appState === 'game' && (
+          <motion.div
+            key="game"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="container mx-auto px-4 py-8 relative z-10"
+          >
+             <ChessGame 
+                roomId={gameState.roomId}
+                playerColor={gameState.playerColor}
+                onLeaveRoom={handleLeaveRoom}
+              />
+          </motion.div>
+        )}
+
+      </AnimatePresence>
     </div>
   )
 }

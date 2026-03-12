@@ -2,14 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap');
+
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color-scheme: dark;
+  color: rgba(255, 255, 255, 0.9);
+  background-color: #0d1117; /* GitHub Dark dimension */
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -23,29 +25,74 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  background: radial-gradient(circle at 50% 0%, #1a2333 0%, #0d1117 100%);
+  background-attachment: fixed;
 }
 
 #root {
   width: 100%;
   margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+}
+
+h1, h2, h3, h4, h5, h6, .outfit-font {
+  font-family: 'Outfit', sans-serif;
 }
 
 @layer components {
+  /* Premium Glass UI Panel */
+  .glass-panel {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl;
+  }
+  
+  .glass-card {
+    @apply bg-[#151b23]/80 backdrop-blur-lg border border-white/10 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:border-chess-secondary/50 transition-all duration-300;
+  }
+
+  /* Animated Premium Buttons */
   .btn-primary {
-    @apply bg-chess-secondary hover:bg-chess-secondary/80 text-white font-bold py-3 px-6 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl;
+    @apply relative overflow-hidden bg-gradient-to-r from-chess-secondary to-blue-500 hover:from-blue-500 hover:to-chess-secondary text-white font-bold py-3 px-8 rounded-xl transition-all duration-300 shadow-[0_0_20px_rgba(59,130,246,0.3)] hover:shadow-[0_0_30px_rgba(59,130,246,0.6)] transform hover:-translate-y-1;
   }
 
   .btn-secondary {
-    @apply bg-chess-primary hover:bg-chess-primary/80 text-white font-bold py-3 px-6 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl;
+    @apply relative overflow-hidden bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold py-3 px-8 rounded-xl transition-all duration-300 shadow-lg transform hover:-translate-y-1;
   }
 
+  /* Old classes mapped to new ones for compatibility if needed temporarily */
   .card {
-    @apply bg-chess-primary rounded-xl shadow-2xl p-8 border border-gray-700;
+    @apply glass-card p-8;
   }
 
   .input-field {
-    @apply w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-chess-secondary focus:border-transparent;
+    @apply w-full px-5 py-4 bg-[#0d1117]/80 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-chess-secondary focus:border-transparent transition-all duration-200 shadow-inner;
   }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #8b5cf6;
+}
+
+/* Animations */
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.text-gradient {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-chess-secondary to-purple-400;
 }

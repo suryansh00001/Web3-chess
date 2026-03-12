@@ -6,6 +6,7 @@
  * - Player connections and color assignment
  * - Real-time move validation and broadcasting
  * - Game state synchronization
+ * - Timer (Clock) management
  */
 
 const express = require('express');
@@ -24,8 +25,11 @@ const io = new Server(server, {
   }
 });
 
+// Timer constants
+const INITIAL_TIME_MS = 10 * 60 * 1000; // 10 minutes
+
 // In-memory storage for game rooms
-// Structure: { roomId: { players: {}, gameState: Chess instance, playerColors: {} } }
+// Structure: { roomId: { players: {}, gameState: Chess instance, playerColors: {}, timers: {}, lastMoveTime: number, interval: Timer } }
 const rooms = new Map();
 
 /**
@@ -68,6 +72,69 @@ function getGameResult(chess) {
   return { isOver: false };
 }
 
+/**
+ * Start or resume the timer interval for a room
+ */
+function startTimerInterval(roomId) {
+  const room = rooms.get(roomId);
+  if (!room || room.interval) return;
+
+  room.lastMoveTime = Date.now();
+  
+  room.interval = setInterval(() => {
+    const currentRoom = rooms.get(roomId);
+    if (!currentRoom) return;
+
+    const currentTurn = currentRoom.gameState.turn();
+    const now = Date.now();
+    const elapsed = now - currentRoom.lastMoveTime;
+    
+    currentRoom.timers[currentTurn] -= elapsed;
+    currentRoom.lastMoveTime = now;
+
+    // Check for timeout
+    if (currentRoom.timers[currentTurn] <= 0) {
+      currentRoom.timers[currentTurn] = 0;
+      clearInterval(currentRoom.interval);
+      currentRoom.interval = null;
+
+      const winnerColor = currentTurn === 'w' ? 'Black' : 'White';
+      
+      console.log(`Time up in room ${roomId}. ${winnerColor} wins.`);
+      
+      io.to(roomId).emit('TIME_UP', {
+        winner: winnerColor,
+        isOver: true,
+        result: 'timeout',
+        timers: currentRoom.timers
+      });
+
+      // Cleanup
+      setTimeout(() => {
+        rooms.delete(roomId);
+        console.log(`Room ${roomId} cleaned up after timeout`);
+      }, 300000);
+    }
+  }, 1000); // Check every second
+}
+
+/**
+ * Stop the timer interval for a room
+ */
+function stopTimerInterval(roomId) {
+  const room = rooms.get(roomId);
+  if (room && room.interval) {
+    clearInterval(room.interval);
+    room.interval = null;
+    
+    // Final exact update before pause
+    const currentTurn = room.gameState.turn();
+    const now = Date.now();
+    const elapsed = now - room.lastMoveTime;
+    room.timers[currentTurn] -= elapsed;
+  }
+}
+
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
 
@@ -79,7 +146,7 @@ io.on('connection', (socket) => {
     const roomId = generateRoomId();
     const colors = assignColors();
     
-    // Initialize new room
+    // Initialize new room WITH TIMERS
     rooms.set(roomId, {
       players: {
         creator: socket.id,
@@ -89,7 +156,13 @@ io.on('connection', (socket) => {
       playerColors: {
         [socket.id]: colors.creator
       },
-      creatorColor: colors.creator
+      creatorColor: colors.creator,
+      timers: {
+        w: INITIAL_TIME_MS,
+        b: INITIAL_TIME_MS
+      },
+      lastMoveTime: null,
+      interval: null
     });
 
     // Join the socket room
@@ -103,7 +176,8 @@ io.on('connection', (socket) => {
     socket.emit('ROOM_CREATED', {
       roomId,
       color: colors.creator,
-      fen: rooms.get(roomId).gameState.fen()
+      fen: rooms.get(roomId).gameState.fen(),
+      timers: rooms.get(roomId).timers
     });
   });
 
@@ -142,18 +216,24 @@ io.on('connection', (socket) => {
     socket.emit('ROOM_JOINED', {
       roomId,
       color: joinerColor,
-      fen: room.gameState.fen()
+      fen: room.gameState.fen(),
+      timers: room.timers
     });
 
-    // Notify both players that game is starting
+    // Notify both players that game is starting AND start the timer
     io.to(roomId).emit('GAME_START', {
       players: {
         white: room.creatorColor === 'w' ? room.players.creator : room.players.joiner,
         black: room.creatorColor === 'b' ? room.players.creator : room.players.joiner
       },
       currentTurn: 'w',
-      fen: room.gameState.fen()
+      fen: room.gameState.fen(),
+      timers: room.timers,
+      timestamp: Date.now()
     });
+
+    // Start timer interval for White
+    startTimerInterval(roomId);
   });
 
   /**
@@ -176,20 +256,26 @@ io.on('connection', (socket) => {
     if (room.gameState.turn() !== playerColor) {
       socket.emit('INVALID_MOVE', { 
         message: 'Not your turn',
-        fen: room.gameState.fen()
+        fen: room.gameState.fen(),
+        timers: room.timers
       });
       return;
     }
 
     // Attempt to make the move using chess.js
     try {
+      // Pause timer for accurate calculation before move
+      stopTimerInterval(roomId);
+
       const result = room.gameState.move(move);
       
       if (result === null) {
-        // Invalid move
+        // Invalid move, restart timer for same player
+        startTimerInterval(roomId);
         socket.emit('INVALID_MOVE', { 
           message: 'Invalid move',
-          fen: room.gameState.fen()
+          fen: room.gameState.fen(),
+          timers: room.timers
         });
         return;
       }
@@ -206,10 +292,12 @@ io.on('connection', (socket) => {
         fen: room.gameState.fen(),
         currentTurn: room.gameState.turn(),
         isCheck: isInCheck,
-        gameOver: gameResult
+        gameOver: gameResult,
+        timers: room.timers,
+        timestamp: Date.now()
       });
 
-      // If game is over, clean up room after a delay
+      // If game is over, clean up room and DON'T restart timer
       if (gameResult.isOver) {
         console.log(`Game over in room ${roomId}: ${gameResult.result}`);
         // Keep room for 5 minutes before cleanup
@@ -217,14 +305,19 @@ io.on('connection', (socket) => {
           rooms.delete(roomId);
           console.log(`Room ${roomId} cleaned up`);
         }, 300000);
+      } else {
+        // Switch turn logic handled by chess.js, start timer for next player
+        startTimerInterval(roomId);
       }
 
     } catch (error) {
       console.error(`Error processing move: ${error.message}`);
       socket.emit('INVALID_MOVE', { 
         message: 'Error processing move',
-        fen: room.gameState.fen()
+        fen: room.gameState.fen(),
+        timers: room.timers
       });
+      startTimerInterval(roomId); // resume timer
     }
   });
 
@@ -239,6 +332,8 @@ io.on('connection', (socket) => {
     if (socket.roomId) {
       const room = rooms.get(socket.roomId);
       if (room) {
+        stopTimerInterval(socket.roomId);
+        
         // Notify other player
         io.to(socket.roomId).emit('PLAYER_DISCONNECTED', {
           message: 'Opponent disconnected'
@@ -265,11 +360,19 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Force an exact timer sync if running
+    if (room.interval) {
+        stopTimerInterval(roomId);
+        startTimerInterval(roomId);
+    }
+
     socket.emit('GAME_STATE', {
       fen: room.gameState.fen(),
       currentTurn: room.gameState.turn(),
       isCheck: room.gameState.isCheck(),
-      playerColor: room.playerColors[socket.id]
+      playerColor: room.playerColors[socket.id],
+      timers: room.timers,
+      timestamp: Date.now()
     });
   });
 });
@@ -279,3 +382,4 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`🎮 Chess server running on port ${PORT}`);
 });
+

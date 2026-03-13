@@ -372,6 +372,7 @@ io.on('connection', (socket) => {
       isCheck: room.gameState.isCheck(),
       playerColor: room.playerColors[socket.id],
       timers: room.timers,
+      gameOver: getGameResult(room.gameState),
       timestamp: Date.now()
     });
   });

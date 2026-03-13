@@ -1,15 +1,7 @@
-/**
- * RoomSetup Component
- * 
- * Allows users to:
- * - Create a new game room
- * - Join an existing room by entering a room ID
- * 
- * This is the entry point before the chess game starts.
- */
-
 import { useState } from 'react';
 import { useSocket } from '../hooks/useSocket';
+import { Plus, Users, ArrowLeft, RefreshCw, Copy, Check, Zap } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const RoomSetup = ({ onJoinRoom }) => {
   const socket = useSocket();
@@ -17,48 +9,36 @@ const RoomSetup = ({ onJoinRoom }) => {
   const [roomInput, setRoomInput] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
 
-  /**
-   * Handle creating a new room
-   */
   const handleCreateRoom = () => {
     if (!socket.isConnected) {
-      setError('Not connected to server. Please refresh the page.');
+      setError('Not connected to server. Please refresh.');
       return;
     }
-
     setIsLoading(true);
     setError('');
-
     socket.createRoom((data) => {
       setIsLoading(false);
-      console.log('Room created successfully:', data);
       onJoinRoom(data.roomId, data.color);
     });
   };
 
-  /**
-   * Handle joining an existing room
-   */
   const handleJoinRoom = () => {
     if (!socket.isConnected) {
-      setError('Not connected to server. Please refresh the page.');
+      setError('Not connected. Please refresh.');
       return;
     }
-
     if (!roomInput.trim()) {
       setError('Please enter a room ID');
       return;
     }
-
     setIsLoading(true);
     setError('');
-
     socket.joinRoom(
       roomInput.trim().toUpperCase(),
       (data) => {
         setIsLoading(false);
-        console.log('Joined room successfully:', data);
         onJoinRoom(data.roomId, data.color);
       },
       (errorMessage) => {
@@ -68,186 +48,157 @@ const RoomSetup = ({ onJoinRoom }) => {
     );
   };
 
-  /**
-   * Reset to mode selection
-   */
   const handleBack = () => {
     setMode(null);
     setRoomInput('');
     setError('');
   };
 
-  // Show connection status
   if (!socket.isConnected) {
     return (
       <div className="max-w-md mx-auto">
-        <div className="card">
-          <div className="flex flex-col items-center gap-4">
-            <div className="animate-spin h-12 w-12 border-4 border-chess-secondary border-t-transparent rounded-full" />
-            <p className="text-xl text-gray-300">Connecting to server...</p>
-            {socket.error && (
-              <p className="text-red-400 text-sm">{socket.error}</p>
+        <div className="glass-panel p-12 text-center space-y-6">
+          <div className="relative mx-auto w-20 h-20">
+            <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full" />
+            <RefreshCw className="w-20 h-20 text-blue-400 animate-spin relative z-10" />
+          </div>
+          <p className="text-xl font-bold outfit-font text-gray-300">Establishing Connection...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto">
+        <AnimatePresence mode="wait">
+            {!mode ? (
+                <motion.div 
+                    key="mode-select"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="glass-panel p-12 space-y-10"
+                >
+                    <div className="text-center space-y-2">
+                        <h2 className="text-4xl font-black outfit-font tracking-tight">GAME LOBBY</h2>
+                        <p className="text-gray-400 font-light">Create a new arena or join an existing battle</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <button
+                            onClick={() => setMode('create')}
+                            className="glass-card hover:bg-white/5 p-8 flex flex-col items-center gap-4 group transition-all"
+                        >
+                            <div className="p-4 bg-blue-500/10 rounded-2xl group-hover:bg-blue-500/20 transition-colors">
+                                <Plus className="w-8 h-8 text-blue-400" />
+                            </div>
+                            <div className="text-center">
+                                <h3 className="text-xl font-bold outfit-font">Create Game</h3>
+                                <p className="text-xs text-gray-500 uppercase tracking-widest mt-1">Host a new match</p>
+                            </div>
+                        </button>
+
+                        <button
+                            onClick={() => setMode('join')}
+                            className="glass-card hover:bg-white/5 p-8 flex flex-col items-center gap-4 group transition-all"
+                        >
+                            <div className="p-4 bg-purple-500/10 rounded-2xl group-hover:bg-purple-500/20 transition-colors">
+                                <Users className="w-8 h-8 text-purple-400" />
+                            </div>
+                            <div className="text-center">
+                                <h3 className="text-xl font-bold outfit-font">Join Game</h3>
+                                <p className="text-xs text-gray-500 uppercase tracking-widest mt-1">Enter Room ID</p>
+                            </div>
+                        </button>
+                    </div>
+                </motion.div>
+            ) : (
+                <motion.div 
+                    key={mode}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="glass-panel p-12 relative"
+                >
+                    <button
+                        onClick={handleBack}
+                        className="absolute top-8 left-8 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-colors text-gray-400 hover:text-white"
+                    >
+                        <ArrowLeft className="w-5 h-5" />
+                    </button>
+
+                    <div className="text-center space-y-6 pt-4">
+                        <h2 className="text-4xl font-black outfit-font tracking-tight">
+                            {mode === 'create' ? 'CREATE ARENA' : 'ENTER ARENA'}
+                        </h2>
+                        
+                        {mode === 'create' ? (
+                            <div className="space-y-8">
+                                <div className="p-8 bg-blue-500/5 border border-blue-500/20 rounded-2xl text-left space-y-4">
+                                    <div className="flex items-start gap-4">
+                                        <div className="w-2 h-2 rounded-full bg-blue-400 mt-2 shadow-[0_0_8px_rgba(96,165,250,0.8)]" />
+                                        <p className="text-gray-300 leading-relaxed">
+                                            Generating a secure room on the Web3 Chess network. You will be assigned a random color.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-start gap-4 text-sm text-gray-400">
+                                        <Zap className="w-4 h-4 text-yellow-500" />
+                                        <span>Standard 10-minute rapid clock will be applied.</span>
+                                    </div>
+                                </div>
+
+                                {error && (
+                                    <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 font-medium">
+                                        {error}
+                                    </div>
+                                )}
+
+                                <button
+                                    onClick={handleCreateRoom}
+                                    disabled={isLoading}
+                                    className="btn-primary w-full py-5 text-xl rounded-2xl"
+                                >
+                                    {isLoading ? 'INITIATING...' : 'GENERATE ROOM'}
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="space-y-8">
+                                <div className="space-y-4">
+                                    <label className="text-xs font-bold uppercase tracking-[0.2em] text-gray-500">Arena ID</label>
+                                    <input
+                                        type="text"
+                                        value={roomInput}
+                                        onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
+                                        onKeyPress={(e) => e.key === 'Enter' && handleJoinRoom()}
+                                        placeholder="E.G. XJ7A21"
+                                        maxLength={6}
+                                        className="input-field text-center text-4xl font-black outfit-font tracking-[0.3em] h-24"
+                                        disabled={isLoading}
+                                    />
+                                </div>
+
+                                {error && (
+                                    <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 font-medium">
+                                        {error}
+                                    </div>
+                                )}
+
+                                <button
+                                    onClick={handleJoinRoom}
+                                    disabled={isLoading || !roomInput.trim()}
+                                    className="btn-primary w-full py-5 text-xl rounded-2xl"
+                                >
+                                    {isLoading ? 'JOINING...' : 'JOIN ARENA'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </motion.div>
             )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Mode selection screen
-  if (!mode) {
-    return (
-      <div className="max-w-md mx-auto">
-        <div className="card">
-          <h2 className="text-3xl font-bold mb-8 text-center text-gray-100">
-            Choose Game Mode
-          </h2>
-
-          <div className="flex flex-col gap-4">
-            <button
-              onClick={() => setMode('create')}
-              className="btn-primary text-lg py-4"
-            >
-              🎮 Create New Game
-            </button>
-
-            <button
-              onClick={() => setMode('join')}
-              className="btn-secondary text-lg py-4"
-            >
-              🔗 Join Existing Game
-            </button>
-          </div>
-
-          <div className="mt-8 p-4 bg-gray-800 rounded-lg border border-gray-600">
-            <p className="text-sm text-gray-300 text-center">
-              <span className="font-bold">How to play:</span>
-              <br />
-              Create a room to get a unique Room ID, then share it with your opponent.
-              Or join a friend's game using their Room ID.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Create room screen
-  if (mode === 'create') {
-    return (
-      <div className="max-w-md mx-auto">
-        <div className="card">
-          <button
-            onClick={handleBack}
-            className="text-gray-400 hover:text-white mb-4"
-          >
-            ← Back
-          </button>
-
-          <h2 className="text-3xl font-bold mb-6 text-center text-gray-100">
-            Create New Game
-          </h2>
-
-          <div className="space-y-6">
-            <div className="p-6 bg-gray-800 rounded-lg border border-gray-600">
-              <p className="text-gray-300 mb-4">
-                Click the button below to create a new game room. You'll receive a unique 
-                <span className="font-bold text-chess-secondary"> Room ID</span> that you can share with your opponent.
-              </p>
-              <p className="text-sm text-gray-400">
-                💡 You will be randomly assigned White or Black
-              </p>
-            </div>
-
-            {error && (
-              <div className="p-4 bg-red-900/30 border border-red-500 rounded-lg">
-                <p className="text-red-400 text-center">{error}</p>
-              </div>
-            )}
-
-            <button
-              onClick={handleCreateRoom}
-              disabled={isLoading}
-              className="btn-primary w-full text-lg py-4 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
-                  Creating Room...
-                </span>
-              ) : (
-                '🎮 Create Room'
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Join room screen
-  if (mode === 'join') {
-    return (
-      <div className="max-w-md mx-auto">
-        <div className="card">
-          <button
-            onClick={handleBack}
-            className="text-gray-400 hover:text-white mb-4"
-          >
-            ← Back
-          </button>
-
-          <h2 className="text-3xl font-bold mb-6 text-center text-gray-100">
-            Join Game
-          </h2>
-
-          <div className="space-y-6">
-            <div>
-              <label className="block text-gray-300 mb-2 font-medium">
-                Enter Room ID
-              </label>
-              <input
-                type="text"
-                value={roomInput}
-                onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
-                onKeyPress={(e) => e.key === 'Enter' && handleJoinRoom()}
-                placeholder="e.g., ABC123"
-                maxLength={6}
-                className="input-field text-center text-2xl tracking-wider uppercase"
-                disabled={isLoading}
-              />
-              <p className="text-sm text-gray-400 mt-2 text-center">
-                Room IDs are 6 characters long
-              </p>
-            </div>
-
-            {error && (
-              <div className="p-4 bg-red-900/30 border border-red-500 rounded-lg">
-                <p className="text-red-400 text-center">{error}</p>
-              </div>
-            )}
-
-            <button
-              onClick={handleJoinRoom}
-              disabled={isLoading || !roomInput.trim()}
-              className="btn-primary w-full text-lg py-4 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
-                  Joining Room...
-                </span>
-              ) : (
-                '🔗 Join Room'
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return null;
+        </AnimatePresence>
+    </div>
+  );
 };
+
 
 export default RoomSetup;

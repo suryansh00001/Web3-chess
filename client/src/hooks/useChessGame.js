@@ -9,7 +9,7 @@
  * - Handle piece selection and movement
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Chess } from 'chess.js';
 
 export const useChessGame = (initialFen = null) => {
@@ -157,7 +157,7 @@ export const useChessGame = (initialFen = null) => {
     return game.board();
   }, [game]);
 
-  return {
+  return useMemo(() => ({
     game,
     position,
     gameStatus,
@@ -171,5 +171,20 @@ export const useChessGame = (initialFen = null) => {
     getCurrentTurn,
     getHistory,
     getBoard
-  };
+  }), [
+    game, 
+    position, 
+    gameStatus, 
+    updatePosition, 
+    isMoveLegal, 
+    makeMove, 
+    getLegalMoves, 
+    resetGame, 
+    getPiece, 
+    isPlayerTurn, 
+    getCurrentTurn, 
+    getHistory, 
+    getBoard
+  ]);
 };
+

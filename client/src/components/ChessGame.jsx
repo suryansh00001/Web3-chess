@@ -1,25 +1,11 @@
-/**
- * ChessGame Component
- * 
- * Main game component that integrates:
- * - chess.js for game logic
- * - react-chessboard for UI
- * - Socket.io for real-time multiplayer
- * 
- * This component handles:
- * - Board rendering and orientation
- * - Drag-and-drop piece movement
- * - Real-time move synchronization
- * - Game state display
- * - Turn management
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { useSocket } from '../hooks/useSocket';
 import { useChessGame } from '../hooks/useChessGame';
 import GameStatus from './GameStatus';
 import GameInfo from './GameInfo';
+import ChessTimer from './ChessTimer';
+import GameOverModal from './GameOverModal';
 
 const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
   // Custom hooks
@@ -33,7 +19,8 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
     opponentConnected: false,
     currentTurn: 'w',
     isCheck: false,
-    gameResult: null
+    gameResult: null,
+    timers: { w: 600000, b: 600000 }
   });
 
   const [selectedSquare, setSelectedSquare] = useState(null);
@@ -48,7 +35,6 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
 
   /**
    * Handle game start event from server
-   * Both players receive this when the second player joins
    */
   useEffect(() => {
     const unsubscribe = socket.onGameStart((data) => {
@@ -59,7 +45,8 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
         opponentConnected: true,
         currentTurn: data.currentTurn,
         isCheck: false,
-        gameResult: null
+        gameResult: null,
+        timers: data.timers || { w: 600000, b: 600000 }
       });
       
       // Update board position
@@ -71,27 +58,23 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
 
   /**
    * Handle move made event from server
-   * Updates the board when any player makes a move
    */
   useEffect(() => {
     const unsubscribe = socket.onMoveMade((data) => {
       console.log('Move received:', data);
       
-      // Update the board position from server
       chessGame.updatePosition(data.fen);
 
-      // Update game state
       const newGameState = {
         status: data.gameOver.isOver ? 'finished' : 'playing',
         opponentConnected: true,
         currentTurn: data.currentTurn,
         isCheck: data.isCheck,
-        gameResult: data.gameOver.isOver ? data.gameOver : null
+        gameResult: data.gameOver.isOver ? data.gameOver : null,
+        timers: data.timers
       };
 
-      // Set appropriate message based on game state
       if (data.gameOver.isOver) {
-        // Game over
         if (data.gameOver.result === 'checkmate') {
           newGameState.message = `Checkmate! ${data.gameOver.winner} wins! 🎉`;
         } else if (data.gameOver.result === 'draw') {
@@ -102,20 +85,14 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
           newGameState.message = `Game Over: ${data.gameOver.result}`;
         }
       } else if (data.isCheck) {
-        // Check
         const checkedPlayer = data.currentTurn === 'w' ? 'White' : 'Black';
         newGameState.message = `Check! ${checkedPlayer} is in check!`;
       } else {
-        // Normal turn
         const currentPlayer = data.currentTurn === playerColor;
-        newGameState.message = currentPlayer 
-          ? "It's your turn!" 
-          : "Opponent's turn...";
+        newGameState.message = currentPlayer ? "It's your turn!" : "Opponent's turn...";
       }
 
       setGameState(newGameState);
-      
-      // Clear any highlighted squares
       setHighlightedSquares({});
       setSelectedSquare(null);
     });
@@ -124,22 +101,35 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
   }, [socket, chessGame, playerColor]);
 
   /**
-   * Handle invalid move event from server
+   * Handle time up event
+   */
+  useEffect(() => {
+    const unsubscribe = socket.onTimeUp((data) => {
+      console.log('Time up:', data);
+      setGameState(prev => ({
+        ...prev,
+        status: 'finished',
+        gameResult: data,
+        message: `Time Up! ${data.winner} wins by timeout! ⏱️`,
+        timers: data.timers
+      }));
+    });
+
+    return unsubscribe;
+  }, [socket]);
+
+  /**
+   * Handle invalid move
    */
   useEffect(() => {
     const unsubscribe = socket.onInvalidMove((data) => {
-      console.warn('Invalid move:', data.message);
-      
-      // Reset board to server state
       chessGame.updatePosition(data.fen);
-      
-      // Show error message temporarily
       setGameState(prev => ({
         ...prev,
-        message: `Invalid move: ${data.message}`
+        message: `Invalid move: ${data.message}`,
+        timers: data.timers || prev.timers
       }));
 
-      // Reset message after 2 seconds
       setTimeout(() => {
         setGameState(prev => ({
           ...prev,
@@ -152,11 +142,10 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
   }, [socket, chessGame, isMyTurn]);
 
   /**
-   * Handle player disconnected event
+   * Handle player disconnected
    */
   useEffect(() => {
     const unsubscribe = socket.onPlayerDisconnected((data) => {
-      console.log('Opponent disconnected');
       setGameState(prev => ({
         ...prev,
         status: 'finished',
@@ -169,69 +158,54 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
   }, [socket]);
 
   /**
-   * Handle piece drop (drag and drop move)
-   * This is called by react-chessboard when a piece is dropped
+   * Fetch game state on mount (for recon)
    */
-  const onPieceDrop = useCallback((sourceSquare, targetSquare, piece) => {
-    // Check if it's player's turn
-    if (!isMyTurn()) {
-      console.log('Not your turn!');
-      return false; // Snap back
-    }
+  useEffect(() => {
+    socket.getGameState(roomId, (data) => {
+        chessGame.updatePosition(data.fen);
+        
+        const isOver = data.gameOver?.isOver;
+        
+        setGameState(prev => ({
+            ...prev,
+            status: isOver ? 'finished' : 'playing',
+            opponentConnected: true,
+            currentTurn: data.currentTurn,
+            isCheck: data.isCheck,
+            gameResult: data.gameOver || null,
+            timers: data.timers || prev.timers,
+            message: isOver 
+                ? `Game Over: ${data.gameOver.result === 'checkmate' ? `Checkmate! ${data.gameOver.winner} wins!` : data.gameOver.result}`
+                : (data.currentTurn === playerColor ? "It's your turn!" : "Opponent's turn...")
+        }));
+    });
+    // Only run once on mount to establish baseline state
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, socket, playerColor]);
 
-    // Check if game is still playing
-    if (gameState.status !== 'playing') {
-      return false; // Snap back
-    }
+  const onPieceDrop = useCallback((sourceSquare, targetSquare) => {
+    if (!isMyTurn() || gameState.status !== 'playing') return false;
 
-    // Construct the move object
-    const move = {
-      from: sourceSquare,
-      to: targetSquare,
-      promotion: 'q' // Always promote to queen for simplicity
-    };
+    const move = { from: sourceSquare, to: targetSquare, promotion: 'q' };
+    if (!chessGame.isMoveLegal(move)) return false;
 
-    // Validate move locally first
-    if (!chessGame.isMoveLegal(move)) {
-      console.log('Illegal move');
-      return false; // Snap back
-    }
-
-    // Make the move locally (optimistic update)
     const moveResult = chessGame.makeMove(move);
-    
     if (moveResult) {
-      // Send move to server
       socket.makeMove(roomId, move);
-      
-      // Clear highlights
       setHighlightedSquares({});
       setSelectedSquare(null);
-      
-      return true; // Move accepted
+      return true;
     }
-
-    return false; // Snap back
+    return false;
   }, [isMyTurn, gameState.status, chessGame, socket, roomId]);
 
-  /**
-   * Handle square click (for mobile or click-to-move)
-   */
   const onSquareClick = useCallback((square) => {
-    // Only allow clicks during active game
-    if (gameState.status !== 'playing' || !isMyTurn()) {
-      return;
-    }
-
+    if (gameState.status !== 'playing' || !isMyTurn()) return;
     const piece = chessGame.getPiece(square);
 
-    // If no piece is selected
     if (!selectedSquare) {
-      // Check if clicked square has a piece of the player's color
       if (piece && piece.color === playerColor) {
         setSelectedSquare(square);
-        
-        // Highlight legal moves
         const legalMoves = chessGame.getLegalMoves(square);
         const highlights = {};
         legalMoves.forEach(move => {
@@ -243,97 +217,100 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
         setHighlightedSquares(highlights);
       }
     } else {
-      // A piece is already selected, try to move
       if (square === selectedSquare) {
-        // Deselect if clicking same square
         setSelectedSquare(null);
         setHighlightedSquares({});
       } else {
-        // Try to make the move
-        const move = {
-          from: selectedSquare,
-          to: square,
-          promotion: 'q'
-        };
-
+        const move = { from: selectedSquare, to: square, promotion: 'q' };
         if (chessGame.isMoveLegal(move)) {
           const moveResult = chessGame.makeMove(move);
-          if (moveResult) {
-            socket.makeMove(roomId, move);
-          }
+          if (moveResult) socket.makeMove(roomId, move);
         }
-
-        // Clear selection
         setSelectedSquare(null);
         setHighlightedSquares({});
       }
     }
   }, [gameState.status, isMyTurn, selectedSquare, chessGame, playerColor, socket, roomId]);
 
-  /**
-   * Custom square styles for highlighting
-   */
   const customSquareStyles = {
     ...highlightedSquares,
-    ...(selectedSquare && {
-      [selectedSquare]: {
-        background: 'rgba(255, 255, 0, 0.4)'
-      }
-    })
+    ...(selectedSquare && { [selectedSquare]: { background: 'rgba(255, 255, 0, 0.4)' } })
   };
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Game Info Panel */}
-        <div className="lg:col-span-1 order-2 lg:order-1">
-          <GameInfo
-            roomId={roomId}
-            playerColor={playerColor}
-            gameState={gameState}
-            isConnected={socket.isConnected}
-            onLeaveRoom={onLeaveRoom}
-          />
+    <div className="max-w-7xl mx-auto px-4">
+      {/* Game Over Modal */}
+      <GameOverModal 
+        isVisible={gameState.status === 'finished'}
+        result={gameState.gameResult?.result || 'finished'}
+        winner={gameState.gameResult?.winner || (gameState.message.includes('Opponent disconnected') ? 'SYSTEM' : null)}
+        onRestart={() => window.location.reload()}
+        onLeave={onLeaveRoom}
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        
+        {/* Left: Player Timers and Game Action */}
+        <div className="lg:col-span-1 space-y-6 order-2 lg:order-1">
+            <ChessTimer 
+                label="Opponent"
+                color={playerColor === 'w' ? 'b' : 'w'}
+                initialTime={playerColor === 'w' ? gameState.timers.b : gameState.timers.w}
+                isActive={gameState.status === 'playing' && !isMyTurn()}
+            />
+            
+            <GameInfo
+                roomId={roomId}
+                playerColor={playerColor}
+                gameState={gameState}
+                isConnected={socket.isConnected}
+                onLeaveRoom={onLeaveRoom}
+            />
+
+            <ChessTimer 
+                label="You"
+                color={playerColor}
+                initialTime={playerColor === 'w' ? gameState.timers.w : gameState.timers.b}
+                isActive={gameState.status === 'playing' && isMyTurn()}
+            />
         </div>
 
-        {/* Chess Board */}
-        <div className="lg:col-span-2 order-1 lg:order-2">
-          <div className="card">
-            {/* Status Message */}
+        {/* Center/Right: Chess Board */}
+        <div className="lg:col-span-3 order-1 lg:order-2">
+          <div className="glass-panel p-8">
             <GameStatus
               message={gameState.message}
               status={gameState.status}
               isCheck={gameState.isCheck}
             />
 
-            {/* Chessboard */}
-            <div className="mt-6 mx-auto" style={{ maxWidth: '600px' }}>
-              <Chessboard
-                position={chessGame.position}
-                onPieceDrop={onPieceDrop}
-                onSquareClick={onSquareClick}
-                boardOrientation={playerColor === 'w' ? 'white' : 'black'}
-                customSquareStyles={customSquareStyles}
-                boardWidth={600}
-                animationDuration={200}
-                arePiecesDraggable={gameState.status === 'playing' && isMyTurn()}
-              />
+            <div className="mt-8 flex justify-center">
+              <div className="w-full max-w-[650px] shadow-2xl rounded-lg overflow-hidden border-8 border-white/5">
+                <Chessboard
+                  position={chessGame.position}
+                  onPieceDrop={onPieceDrop}
+                  onSquareClick={onSquareClick}
+                  boardOrientation={playerColor === 'w' ? 'white' : 'black'}
+                  customSquareStyles={customSquareStyles}
+                  animationDuration={300}
+                  arePiecesDraggable={gameState.status === 'playing' && isMyTurn()}
+                  customDarkSquareStyle={{ backgroundColor: '#1e293b' }}
+                  customLightSquareStyle={{ backgroundColor: '#475569' }}
+                />
+              </div>
             </div>
 
-            {/* Turn Indicator */}
-            <div className="mt-6 text-center">
-              <div className={`inline-flex items-center gap-2 px-6 py-3 rounded-full ${
-                isMyTurn() && gameState.status === 'playing'
-                  ? 'bg-green-600 animate-pulse'
-                  : 'bg-gray-700'
-              }`}>
-                <div className={`w-3 h-3 rounded-full ${
-                  chessGame.getCurrentTurn() === 'w' ? 'bg-white' : 'bg-gray-900'
-                }`} />
-                <span className="font-bold">
-                  {chessGame.getCurrentTurn() === 'w' ? "White's Turn" : "Black's Turn"}
-                </span>
-              </div>
+            <div className="mt-8 flex justify-center gap-4">
+                <div className={`px-8 py-4 rounded-2xl flex items-center gap-4 transition-all duration-500 ${
+                     gameState.status === 'playing' && isMyTurn() 
+                        ? 'bg-blue-600/20 border border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.3)] scale-110' 
+                        : 'bg-white/5 border border-white/10 opacity-50'
+                }`}>
+                    <div className={`w-3 h-3 rounded-full ${isMyTurn() ? 'bg-blue-400 animate-pulse' : 'bg-gray-600'}`} />
+                    <span className="font-bold outfit-font tracking-wide">
+                        {isMyTurn() ? "THINKING..." : "WAITING FOR OPPONENT"}
+                    </span>
+                </div>
             </div>
           </div>
         </div>

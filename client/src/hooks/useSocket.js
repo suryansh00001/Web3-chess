@@ -9,6 +9,7 @@
  * - Handle all socket event listeners
  */
 
+import { useMemo } from 'react';
 import { useSocketContext } from '../context/SocketContext';
 
 export const useSocket = () => {
@@ -146,7 +147,21 @@ export const useSocket = () => {
     socket.once('GAME_STATE', callback);
   };
 
-  return {
+  /**
+   * Subscribe to time up event
+   * @param {Function} callback - Called when a player runs out of time
+   */
+  const onTimeUp = (callback) => {
+    if (!socket) return () => {};
+
+    socket.on('TIME_UP', callback);
+
+    return () => {
+      socket.off('TIME_UP', callback);
+    };
+  };
+
+  return useMemo(() => ({
     socket,
     isConnected,
     error,
@@ -157,7 +172,9 @@ export const useSocket = () => {
     onMoveMade,
     onInvalidMove,
     onPlayerDisconnected,
+    onTimeUp,
     onError,
     getGameState
-  };
+  }), [socket, isConnected, error]);
 };
+

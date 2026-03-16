@@ -1,10 +1,16 @@
 import { useState } from 'react'
+import { Routes, Route } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import ChessGame from './components/ChessGame'
 import RoomSetup from './components/RoomSetup'
 import Home from './components/Home'
+import GameplayPage from './pages/GameplayPage'
+import FeaturesPage from './pages/FeaturesPage'
+import StatsPage from './pages/StatsPage'
+import LearnMorePage from './pages/LearnMorePage'
 
-function App() {
+// Wrapper for the chess game flow (home → setup → game)
+function ChessApp() {
   const [appState, setAppState] = useState('home'); // 'home' | 'setup' | 'game'
   const [gameState, setGameState] = useState({
     roomId: null,
@@ -85,6 +91,18 @@ function App() {
 
       </AnimatePresence>
     </div>
+  )
+}
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<ChessApp />} />
+      <Route path="/gameplay" element={<GameplayPage />} />
+      <Route path="/features" element={<FeaturesPage />} />
+      <Route path="/stats" element={<StatsPage />} />
+      <Route path="/learn-more" element={<LearnMorePage />} />
+    </Routes>
   )
 }
 

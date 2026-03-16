@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Crown, Zap, Shield, Globe2, ChevronRight, Trophy, Users, Globe } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Crown, Globe2, ChevronRight, Trophy, Users, Globe } from 'lucide-react';
 import chessHeroImage from '../assets/chess_hero.png'; 
 
 const Home = ({ onPlay }) => {
@@ -34,9 +35,9 @@ const Home = ({ onPlay }) => {
           <span className="text-2xl font-black tracking-tighter outfit-font italic">PROCHESS</span>
         </div>
         <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-400">
-          <a href="#" className="hover:text-white transition-colors">Gameplay</a>
-          <a href="#" className="hover:text-white transition-colors">Features</a>
-          <a href="#" className="hover:text-white transition-colors">Stats</a>
+          <Link to="/gameplay" className="hover:text-white transition-colors">Gameplay</Link>
+          <Link to="/features" className="hover:text-white transition-colors">Features</Link>
+          <Link to="/stats" className="hover:text-white transition-colors">Stats</Link>
           <button 
             onClick={onPlay}
             className="px-6 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-white transition-all"
@@ -85,9 +86,11 @@ const Home = ({ onPlay }) => {
                 <ChevronRight className="w-6 h-6" />
               </motion.div>
             </button>
-            <button className="btn-secondary px-10 py-5 text-xl rounded-2xl">
-              Learn More
-            </button>
+            <Link to="/learn-more">
+              <button className="btn-secondary px-10 py-5 text-xl rounded-2xl">
+                Learn More
+              </button>
+            </Link>
           </motion.div>
 
           {/* Quick Stats */}
@@ -132,30 +135,7 @@ const Home = ({ onPlay }) => {
                 </div>
             </div>
             
-            {/* Floating Info Cards */}
-            <div className="absolute -top-8 -right-8 glass-card p-4 animate-float">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-green-500/20 rounded-lg flex items-center justify-center">
-                        <Zap className="w-5 h-5 text-green-400" />
-                    </div>
-                    <div>
-                        <p className="text-xs font-bold text-gray-400 uppercase">Status</p>
-                        <p className="text-sm font-bold">Ultra Fast</p>
-                    </div>
-                </div>
-            </div>
 
-            <div className="absolute -bottom-8 -left-8 glass-card p-4 animate-float" style={{ animationDelay: '1s' }}>
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center">
-                        <Shield className="w-5 h-5 text-blue-400" />
-                    </div>
-                    <div>
-                        <p className="text-xs font-bold text-gray-400 uppercase">Security</p>
-                        <p className="text-sm font-bold">Anti-Cheat active</p>
-                    </div>
-                </div>
-            </div>
           </div>
         </motion.div>
       </main>

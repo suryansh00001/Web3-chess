@@ -40,11 +40,42 @@ contract MatchEscrow {
         uint64 moveTimeout,
         uint64 disputeWindow
     ) external payable {
-        revert("Not implemented");
+        require(matchId!=0 , "Invalid");
+        require(matches[matchId].status== MatchStatus.NONE, "Match exists already");
+        require (msg.value>0, "Put some stake");
+        require(moveTimeout > 0, "Invalid moveTimeout");
+        require(disputeWindow>0 , "Invalid");
+
+        matches[matchId]= Match({
+            creator: msg.sender,
+            opponent: address(0),
+            stakeAmount: msg.value,
+            createdAt: uint64(block.timestamp),
+            startedAt: 0,
+            lastActionAt: uint64(block.timestamp),
+            moveTimeout: moveTimeout,
+            disputeWindow: disputeWindow,
+            status : MatchStatus.OPEN,
+            winner: address(0)
+        });
+
+        emit MatchCreated(matchId, msg.sender, msg.value);
     }
 
     function joinMatch(uint256 matchId) external payable {
-        revert("Not implemented");
+        Match storage m = matches[matchId];
+        require(matchId!=0, "invalid matchid");
+        require(m.status == MatchStatus.OPEN, "Not open");
+        require(msg.sender != m.creator, "creator cant join");
+        require(m.opponent == address(0), "already joined ");
+        require( msg.value== m.stakeAmount, "stake mismatch");
+
+        m.opponent = msg.sender;
+        m.status = MatchStatus.ACTIVE;
+        m.startedAt = uint64(block.timestamp);
+        m.lastActionAt= uint64(block.timestamp);
+
+        emit MatchJoined(matchId, msg.sender);
     }
 
     function proposeResult(

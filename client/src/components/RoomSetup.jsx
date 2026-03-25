@@ -13,7 +13,7 @@ const RoomSetup = ({ onJoinRoom }) => {
 
   const handleCreateRoom = () => {
     if (!socket.isConnected) {
-      setError('Not connected to server. Please refresh.');
+            setError('Not connected to Firebase. Please refresh.');
       return;
     }
     setIsLoading(true);
@@ -26,7 +26,7 @@ const RoomSetup = ({ onJoinRoom }) => {
 
   const handleJoinRoom = () => {
     if (!socket.isConnected) {
-      setError('Not connected. Please refresh.');
+            setError('Not connected to Firebase. Please refresh.');
       return;
     }
     if (!roomInput.trim()) {
@@ -63,6 +63,11 @@ const RoomSetup = ({ onJoinRoom }) => {
             <RefreshCw className="w-20 h-20 text-blue-400 animate-spin relative z-10" />
           </div>
           <p className="text-xl font-bold outfit-font text-gray-300">Establishing Connection...</p>
+                    {socket.error && (
+                        <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl p-3">
+                            {socket.error}
+                        </p>
+                    )}
         </div>
       </div>
     );

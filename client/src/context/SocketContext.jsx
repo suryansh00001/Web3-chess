@@ -1,59 +1,56 @@
-/**
- * Socket Context
- * 
- * Provides a single Socket.io instance across the entire application
- * This ensures all components use the same socket connection
- */
-
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { io } from 'socket.io-client';
-
-const SOCKET_SERVER_URL = 'http://localhost:3001';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { auth, db, isFirebaseConfigured } from '../lib/firebase';
 
 const SocketContext = createContext(null);
 
 export const SocketProvider = ({ children }) => {
-  const socketRef = useRef(null);
+  const userRef = useRef(null);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Initialize socket connection only once
-    socketRef.current = io(SOCKET_SERVER_URL, {
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5
-    });
-
-    // Connection event handlers
-    socketRef.current.on('connect', () => {
-      console.log('✅ Connected to server:', socketRef.current.id);
-      setIsConnected(true);
-      setError(null);
-    });
-
-    socketRef.current.on('disconnect', () => {
-      console.log('❌ Disconnected from server');
+    if (!isFirebaseConfigured || !auth || !db) {
+      setError('Firebase is not configured. Add VITE_FIREBASE_* variables.');
       setIsConnected(false);
-    });
+      return;
+    }
 
-    socketRef.current.on('connect_error', (err) => {
-      console.error('Connection error:', err);
-      setError('Failed to connect to server');
-      setIsConnected(false);
-    });
-
-    // Cleanup on unmount
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      userRef.current = user;
+      setIsConnected(Boolean(user));
+      if (user) {
+        setError(null);
       }
+    });
+
+    signInAnonymously(auth).catch((err) => {
+      console.error('Firebase auth error:', err);
+      setError('Failed to connect to Firebase');
+      setIsConnected(false);
+    });
+
+    const handleOffline = () => setIsConnected(false);
+    const handleOnline = () => {
+      if (auth.currentUser) {
+        setIsConnected(true);
+      }
+    };
+
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      unsubscribeAuth();
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
     };
   }, []);
 
   const value = {
-    socket: socketRef.current,
+    socket: null,
+    db,
+    user: userRef.current,
     isConnected,
     error
   };

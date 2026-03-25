@@ -1,19 +1,14 @@
 {
   "name": "web3-chess-dapp",
   "version": "1.0.0",
-  "description": "Web3 Multiplayer Chess DApp - Phase 1",
+  "description": "Firebase multiplayer chess client",
   "scripts": {
-    "install:all": "cd server && npm install && cd ../client && npm install",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:server": "cd server && npm run dev",
-    "dev:client": "cd client && npm run dev",
-    "start:server": "cd server && npm start",
-    "start:client": "cd client && npm run dev"
+    "install": "cd client && npm install",
+    "dev": "cd client && npm run dev",
+    "build": "cd client && npm run build",
+    "preview": "cd client && npm run preview"
   },
-  "keywords": ["chess", "web3", "multiplayer", "socket.io", "react"],
+  "keywords": ["chess", "firebase", "multiplayer", "react"],
   "author": "",
-  "license": "MIT",
-  "devDependencies": {
-    "concurrently": "^8.2.2"
-  }
+  "license": "MIT"
 }

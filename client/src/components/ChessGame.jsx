@@ -11,6 +11,7 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
   // Custom hooks
   const socket = useSocket();
   const chessGame = useChessGame();
+  const { position, updatePosition, isMoveLegal, makeMove, getPiece, getLegalMoves } = chessGame;
 
   // Local state
   const [gameState, setGameState] = useState({
@@ -30,15 +31,14 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
    * Check if it's the current player's turn
    */
   const isMyTurn = useCallback(() => {
-    return chessGame.getCurrentTurn() === playerColor;
-  }, [chessGame, playerColor]);
+    return gameState.currentTurn === playerColor;
+  }, [gameState.currentTurn, playerColor]);
 
   /**
    * Handle game start event from server
    */
   useEffect(() => {
-    const unsubscribe = socket.onGameStart((data) => {
-      console.log('Game started:', data);
+    const unsubscribe = socket.onGameStart(roomId, (data) => {
       setGameState({
         status: 'playing',
         message: `Game Started! You are playing ${playerColor === 'w' ? 'White' : 'Black'}.`,
@@ -50,20 +50,18 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
       });
       
       // Update board position
-      chessGame.updatePosition(data.fen);
+      updatePosition(data.fen);
     });
 
     return unsubscribe;
-  }, [socket, chessGame, playerColor]);
+  }, [socket, roomId, updatePosition, playerColor]);
 
   /**
    * Handle move made event from server
    */
   useEffect(() => {
-    const unsubscribe = socket.onMoveMade((data) => {
-      console.log('Move received:', data);
-      
-      chessGame.updatePosition(data.fen);
+    const unsubscribe = socket.onMoveMade(roomId, (data) => {
+      updatePosition(data.fen);
 
       const newGameState = {
         status: data.gameOver.isOver ? 'finished' : 'playing',
@@ -98,14 +96,13 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
     });
 
     return unsubscribe;
-  }, [socket, chessGame, playerColor]);
+  }, [socket, roomId, updatePosition, playerColor]);
 
   /**
    * Handle time up event
    */
   useEffect(() => {
-    const unsubscribe = socket.onTimeUp((data) => {
-      console.log('Time up:', data);
+    const unsubscribe = socket.onTimeUp(roomId, (data) => {
       setGameState(prev => ({
         ...prev,
         status: 'finished',
@@ -116,14 +113,16 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
     });
 
     return unsubscribe;
-  }, [socket]);
+  }, [socket, roomId]);
 
   /**
    * Handle invalid move
    */
   useEffect(() => {
-    const unsubscribe = socket.onInvalidMove((data) => {
-      chessGame.updatePosition(data.fen);
+    const unsubscribe = socket.onInvalidMove(roomId, (data) => {
+      if (data.fen) {
+        updatePosition(data.fen);
+      }
       setGameState(prev => ({
         ...prev,
         message: `Invalid move: ${data.message}`,
@@ -139,13 +138,27 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
     });
 
     return unsubscribe;
-  }, [socket, chessGame, isMyTurn]);
+  }, [socket, roomId, updatePosition, isMyTurn]);
+
+  /**
+   * Handle generic backend errors
+   */
+  useEffect(() => {
+    const unsubscribe = socket.onError((data) => {
+      setGameState((prev) => ({
+        ...prev,
+        message: data?.message || 'An unexpected error occurred.'
+      }));
+    });
+
+    return unsubscribe;
+  }, [socket]);
 
   /**
    * Handle player disconnected
    */
   useEffect(() => {
-    const unsubscribe = socket.onPlayerDisconnected((data) => {
+    const unsubscribe = socket.onPlayerDisconnected(roomId, (data) => {
       setGameState(prev => ({
         ...prev,
         status: 'finished',
@@ -155,41 +168,47 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
     });
 
     return unsubscribe;
-  }, [socket]);
+  }, [socket, roomId]);
 
   /**
    * Fetch game state on mount (for recon)
    */
   useEffect(() => {
     socket.getGameState(roomId, (data) => {
-        chessGame.updatePosition(data.fen);
+        updatePosition(data.fen);
         
-        const isOver = data.gameOver?.isOver;
+      const isOver = data.gameOver?.isOver;
+      const isWaiting = data.status === 'waiting';
         
         setGameState(prev => ({
             ...prev,
-            status: isOver ? 'finished' : 'playing',
-            opponentConnected: true,
+        // Do not downgrade from live play due a potentially stale initial fetch.
+        status: prev.status === 'playing' && isWaiting ? 'playing' : (isWaiting ? 'waiting' : (isOver ? 'finished' : 'playing')),
+        opponentConnected: prev.status === 'playing' && isWaiting ? true : !isWaiting,
             currentTurn: data.currentTurn,
             isCheck: data.isCheck,
             gameResult: data.gameOver || null,
             timers: data.timers || prev.timers,
-            message: isOver 
+        message: prev.status === 'playing' && isWaiting
+          ? prev.message
+          : isWaiting
+          ? 'Waiting for opponent to join...'
+          : isOver 
                 ? `Game Over: ${data.gameOver.result === 'checkmate' ? `Checkmate! ${data.gameOver.winner} wins!` : data.gameOver.result}`
                 : (data.currentTurn === playerColor ? "It's your turn!" : "Opponent's turn...")
         }));
     });
     // Only run once on mount to establish baseline state
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, socket, playerColor]);
+  }, [roomId, socket, playerColor, updatePosition]);
 
   const onPieceDrop = useCallback((sourceSquare, targetSquare) => {
     if (!isMyTurn() || gameState.status !== 'playing') return false;
 
     const move = { from: sourceSquare, to: targetSquare, promotion: 'q' };
-    if (!chessGame.isMoveLegal(move)) return false;
+    if (!isMoveLegal(move)) return false;
 
-    const moveResult = chessGame.makeMove(move);
+    const moveResult = makeMove(move);
     if (moveResult) {
       socket.makeMove(roomId, move);
       setHighlightedSquares({});
@@ -197,16 +216,16 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
       return true;
     }
     return false;
-  }, [isMyTurn, gameState.status, chessGame, socket, roomId]);
+  }, [isMyTurn, gameState.status, isMoveLegal, makeMove, socket, roomId]);
 
   const onSquareClick = useCallback((square) => {
     if (gameState.status !== 'playing' || !isMyTurn()) return;
-    const piece = chessGame.getPiece(square);
+    const piece = getPiece(square);
 
     if (!selectedSquare) {
       if (piece && piece.color === playerColor) {
         setSelectedSquare(square);
-        const legalMoves = chessGame.getLegalMoves(square);
+        const legalMoves = getLegalMoves(square);
         const highlights = {};
         legalMoves.forEach(move => {
           highlights[move] = {
@@ -222,15 +241,15 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
         setHighlightedSquares({});
       } else {
         const move = { from: selectedSquare, to: square, promotion: 'q' };
-        if (chessGame.isMoveLegal(move)) {
-          const moveResult = chessGame.makeMove(move);
+        if (isMoveLegal(move)) {
+          const moveResult = makeMove(move);
           if (moveResult) socket.makeMove(roomId, move);
         }
         setSelectedSquare(null);
         setHighlightedSquares({});
       }
     }
-  }, [gameState.status, isMyTurn, selectedSquare, chessGame, playerColor, socket, roomId]);
+  }, [gameState.status, isMyTurn, selectedSquare, getPiece, playerColor, getLegalMoves, isMoveLegal, makeMove, socket, roomId]);
 
   const customSquareStyles = {
     ...highlightedSquares,
@@ -287,7 +306,7 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
             <div className="mt-8 flex justify-center">
               <div className="w-full max-w-[650px] shadow-2xl rounded-lg overflow-hidden border-8 border-white/5">
                 <Chessboard
-                  position={chessGame.position}
+                  position={position}
                   onPieceDrop={onPieceDrop}
                   onSquareClick={onSquareClick}
                   boardOrientation={playerColor === 'w' ? 'white' : 'black'}

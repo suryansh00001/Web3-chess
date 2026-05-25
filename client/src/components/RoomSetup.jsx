@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useSocket } from '../hooks/useSocket';
+import { useWallet } from '../hooks/useWallet';
 import { Plus, Users, ArrowLeft, RefreshCw, Copy, Check, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const RoomSetup = ({ onJoinRoom }) => {
   const socket = useSocket();
+    const wallet = useWallet();
   const [mode, setMode] = useState(null); // null | 'create' | 'join'
   const [roomInput, setRoomInput] = useState('');
   const [error, setError] = useState('');
@@ -12,16 +14,22 @@ const RoomSetup = ({ onJoinRoom }) => {
   const [isCopied, setIsCopied] = useState(false);
 
   const handleCreateRoom = () => {
-    if (!socket.isConnected) {
+        if (!socket.isConnected) {
             setError('Not connected to Firebase. Please refresh.');
-      return;
-    }
-    setIsLoading(true);
-    setError('');
-    socket.createRoom((data) => {
-      setIsLoading(false);
-      onJoinRoom(data.roomId, data.color);
-    });
+            return;
+        }
+        setIsLoading(true);
+        setError('');
+        (async () => {
+            try {
+                const data = await socket.createRoom();
+                setIsLoading(false);
+                onJoinRoom(data.roomId, data.color);
+            } catch (err) {
+                setIsLoading(false);
+                setError(err?.message || 'Failed to create room');
+            }
+        })();
   };
 
   const handleJoinRoom = () => {
@@ -87,6 +95,15 @@ const RoomSetup = ({ onJoinRoom }) => {
                     <div className="text-center space-y-2">
                         <h2 className="text-4xl font-black outfit-font tracking-tight">GAME LOBBY</h2>
                         <p className="text-gray-400 font-light">Create a new arena or join an existing battle</p>
+                        <div className="mt-4 flex items-center justify-center gap-3">
+                            {wallet.address ? (
+                                <div className="px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm font-medium">
+                                    {wallet.address.slice(0,6)}...{wallet.address.slice(-4)}
+                                </div>
+                            ) : (
+                                <button onClick={async ()=>{ try { await wallet.connect(); } catch(e){ console.error(e); } }} className="px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold">Connect Wallet</button>
+                            )}
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

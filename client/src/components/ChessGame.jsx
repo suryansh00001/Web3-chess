@@ -265,6 +265,9 @@ const ChessGame = ({ roomId, playerColor, onLeaveRoom }) => {
         winner={gameState.gameResult?.winner || (gameState.message.includes('Opponent disconnected') ? 'SYSTEM' : null)}
         onRestart={() => window.location.reload()}
         onLeave={onLeaveRoom}
+        roomId={roomId}
+        fen={position}
+        moveCount={gameState.moveCount}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">

@@ -61,8 +61,9 @@ export const useSocket = () => {
 
   const createRoom = useCallback(async (callback) => {
     if (!db || !user) {
-      emitError({ message: 'Not connected to Firebase' });
-      return;
+      const msg = 'Not connected to Firebase';
+      emitError({ message: msg });
+      throw new Error(msg);
     }
 
     const roomId = generateRoomId();
@@ -97,9 +98,13 @@ export const useSocket = () => {
 
     try {
       await setDoc(roomRef(roomId), payload);
-      callback?.({ roomId, color: colors.creator, fen: chess.fen(), timers: payload.timers });
+      const result = { roomId, color: colors.creator, fen: chess.fen(), timers: payload.timers };
+      callback?.(result);
+      return result;
     } catch (err) {
-      emitError({ message: 'Failed to create room', details: err.message });
+      const details = err?.message || String(err);
+      emitError({ message: 'Failed to create room', details });
+      throw err;
     }
   }, [db, user, roomRef, emitError]);
 

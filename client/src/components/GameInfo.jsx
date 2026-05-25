@@ -1,8 +1,15 @@
 import { Copy, Check, LogOut, Info, ShieldCheck, Globe } from 'lucide-react';
 import { useState } from 'react';
+import { useWallet } from '../hooks/useWallet';
+import { ethers } from 'ethers';
+import { createMatchTx } from '../web3/matchService';
+import { db } from '../lib/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 
 const GameInfo = ({ roomId, playerColor, gameState, isConnected, onLeaveRoom }) => {
   const [isCopied, setIsCopied] = useState(false);
+  const wallet = useWallet();
+  const [isDeploying, setIsDeploying] = useState(false);
 
   const copyRoomId = () => {
     navigator.clipboard.writeText(roomId);
@@ -78,6 +85,37 @@ const GameInfo = ({ roomId, playerColor, gameState, isConnected, onLeaveRoom }) 
         </div>
 
         {/* Action Button */}
+        {wallet.address && (
+          <button
+            onClick={async () => {
+              try {
+                if (!wallet.address) return alert('Connect wallet first');
+                const stake = prompt('Enter stake in ETH (e.g. 0.01):', '0.01');
+                if (!stake) return;
+                const stakeWei = ethers.utils.parseEther(stake);
+                setIsDeploying(true);
+                // compute matchId deterministically from roomId
+                const idHash = ethers.utils.id(roomId); // keccak256
+                const matchId = ethers.BigNumber.from(idHash);
+                const receipt = await createMatchTx(null, matchId, stakeWei, 300, 3600);
+                // store on-chain metadata in Firestore
+                const roomRef = doc(db, 'rooms', roomId);
+                await updateDoc(roomRef, { onchain: { matchId: idHash, txHash: receipt.transactionHash } });
+                alert('On-chain match created: ' + receipt.transactionHash);
+              } catch (e) {
+                console.error(e);
+                alert('On-chain create failed: ' + (e.message || e));
+              } finally {
+                setIsDeploying(false);
+              }
+            }}
+            disabled={isDeploying}
+            className="w-full py-4 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-400 font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+          >
+            CREATE ON-CHAIN MATCH
+          </button>
+        )}
+
         <button
           onClick={onLeaveRoom}
           className="w-full py-4 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 font-bold rounded-xl transition-all flex items-center justify-center gap-2 group"

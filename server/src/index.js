@@ -8,6 +8,7 @@ const path = require('path');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const Redis = require('ioredis');
 const winston = require('winston');
+const { ethers } = require('ethers');
 
 const { getFirestore } = require('firebase-admin/firestore');
 const { isValidMove, getRoom, updateRoom } = require('./gameController');
@@ -125,6 +126,68 @@ io.on('connection', (socket) => {
 });
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+// Initialize Firestore listener for Oracle signatures
+if (admin.apps.length) {
+  try {
+    const db = getFirestore();
+    logger.info('Setting up Firestore rooms listener for Oracle...');
+    db.collection('rooms').onSnapshot((snapshot) => {
+      snapshot.docChanges().forEach(async (change) => {
+        if (change.type === 'added' || change.type === 'modified') {
+          const room = change.doc.data();
+          // check if room is finished and has active on-chain match
+          if (room.status === 'finished' && room.onchain?.matchId && !room.onchain?.oracleSignature) {
+            logger.info(`Detected finished room ${change.doc.id} with onchain match. Signing...`);
+            try {
+              await handleOracleSignature(change.doc.id, room);
+            } catch (err) {
+              logger.error(`Failed to generate oracle signature for room ${change.doc.id}:`, err);
+            }
+          }
+        }
+      });
+    }, (err) => {
+      logger.error('Firestore listener error:', err);
+    });
+  } catch (e) {
+    logger.warn('Failed to start Firestore oracle listener:', e.message);
+  }
+}
+
+async function handleOracleSignature(roomId, room) {
+  if (!process.env.RPC_URL || !process.env.DEPLOYER_PRIVATE_KEY || !process.env.CONTRACT_ADDRESS) {
+    logger.warn('Match service credentials not configured. Skipping oracle signature generation.');
+    return;
+  }
+
+  const onchain = room.onchain;
+  const matchId = onchain.matchId;
+  const winnerColor = room.gameOver?.winner; // 'White' | 'Black' | null
+  
+  let winnerAddress = ethers.constants.AddressZero;
+  if (winnerColor && winnerColor !== 'draw' && winnerColor !== 'stalemate' && winnerColor !== 'system') {
+    const isWhite = winnerColor.toLowerCase() === 'white';
+    const winnerUid = isWhite ? room.players?.white : room.players?.black;
+    winnerAddress = room.playerAddresses?.[winnerUid] || ethers.constants.AddressZero;
+  }
+  
+  const fen = room.fen;
+  const moveCount = room.moveCount || 0;
+  const checkpointHash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(`${fen}|${moveCount}`));
+  
+  logger.info(`Signing oracle settlement for room=${roomId}, matchId=${matchId}, winnerAddress=${winnerAddress}, checkpointHash=${checkpointHash}`);
+  
+  const signature = await matchService.signOracleResult(matchId, winnerAddress, checkpointHash);
+  
+  const db = getFirestore();
+  const roomRef = db.collection('rooms').doc(roomId);
+  await roomRef.update({
+    'onchain.oracleSignature': signature,
+    'onchain.winnerAddress': winnerAddress
+  });
+  logger.info(`Successfully saved oracleSignature to room=${roomId}`);
+}
 
 server.listen(PORT, () => {
   logger.info(`Server listening on port ${PORT}`);

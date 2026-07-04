@@ -97,6 +97,13 @@ export async function cancelOpenMatchTx(_walletClient, _matchId) {
   return tx.wait();
 }
 
+export async function settleWithOracleTx(_walletClient, _matchId, _winner, _checkpointHash, _oracleSig) {
+  const signer = _getSigner(_walletClient);
+  const contract = _getContract(signer);
+  const tx = await contract.settleWithOracle(_matchId, _winner, _checkpointHash, _oracleSig);
+  return tx.wait();
+}
+
 // Helpers to create signatures compatible with the Solidity contract
 export async function signProposeResult(_walletClient, _matchId, _winner, _checkpointHash) {
   const provider = _getProvider(_walletClient);

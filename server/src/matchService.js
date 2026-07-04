@@ -25,4 +25,23 @@ async function joinMatch(matchId, stakeWei) {
   return tx.wait();
 }
 
-module.exports = { init, createMatch, joinMatch };
+async function signOracleResult(matchIdStr, winnerAddress, checkpointHashHex) {
+  if (!wallet || !contract) throw new Error('Match service not initialized');
+  
+  const matchId = ethers.BigNumber.from(matchIdStr);
+  const chainId = (await provider.getNetwork()).chainId;
+  
+  const actionHash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes("ORACLE_SETTLE"));
+  
+  const encoded = ethers.utils.defaultAbiCoder.encode(
+    ['bytes32', 'address', 'uint256', 'uint256', 'address', 'bytes32'],
+    [actionHash, contract.address, chainId, matchId, winnerAddress, checkpointHashHex]
+  );
+  
+  const innerHash = ethers.utils.keccak256(encoded);
+  
+  const signature = await wallet.signMessage(ethers.utils.arrayify(innerHash));
+  return signature;
+}
+
+module.exports = { init, createMatch, joinMatch, signOracleResult };

@@ -1,16 +1,22 @@
 const { Chess } = require('chess.js');
 const { getFirestore, serverTimestamp } = require('firebase-admin/firestore');
 
-const firestore = getFirestore();
+let firestore;
+function _db() {
+  if (!firestore) {
+    firestore = getFirestore();
+  }
+  return firestore;
+}
 
 async function getRoom(roomId) {
-  const ref = firestore.collection('rooms').doc(roomId);
+  const ref = _db().collection('rooms').doc(roomId);
   const snap = await ref.get();
   return snap.exists ? snap.data() : null;
 }
 
 async function updateRoom(roomId, patch) {
-  const ref = firestore.collection('rooms').doc(roomId);
+  const ref = _db().collection('rooms').doc(roomId);
   await ref.set({ ...patch, updatedAt: serverTimestamp() }, { merge: true });
 }
 

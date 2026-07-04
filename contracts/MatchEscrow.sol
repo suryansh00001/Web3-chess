@@ -33,9 +33,13 @@ contract MatchEscrow {
 
     uint256 private _locked;
 
+    address public owner;
+    address public oracle;
+
     bytes32 private constant ACTION_PROPOSE_RESULT = keccak256("PROPOSE_RESULT");
     bytes32 private constant ACTION_OPEN_FORFEIT = keccak256("OPEN_FORFEIT");
     bytes32 private constant ACTION_CHALLENGE_CLAIM = keccak256("CHALLENGE_CLAIM");
+    bytes32 private constant ACTION_ORACLE_SETTLE = keccak256("ORACLE_SETTLE");
 
     event MatchCreated(uint256 indexed matchId, address indexed creator, uint256 stakeAmount);
     event MatchJoined(uint256 indexed matchId, address indexed opponent);
@@ -45,11 +49,26 @@ contract MatchEscrow {
     event MatchSettled(uint256 indexed matchId, address indexed winner, uint256 payout);
     event MatchCancelled(uint256 indexed matchId);
 
+    constructor() {
+        owner = msg.sender;
+        oracle = msg.sender;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner");
+        _;
+    }
+
     modifier nonReentrant() {
         require(_locked == 0, "Reentrancy");
         _locked = 1;
         _;
         _locked = 0;
+    }
+
+    function setOracle(address _oracle) external onlyOwner {
+        require(_oracle != address(0), "Invalid oracle");
+        oracle = _oracle;
     }
 
     function createMatch(
@@ -241,21 +260,57 @@ contract MatchEscrow {
         emit MatchCancelled(matchId);
     }
 
+    function settleWithOracle(
+        uint256 matchId,
+        address winner,
+        bytes32 checkpointHash,
+        bytes calldata oracleSig
+    ) external {
+        Match storage m = matches[matchId];
+        require(m.status == MatchStatus.ACTIVE || m.status == MatchStatus.OPEN, "Bad state");
+        require(winner == m.creator || winner == m.opponent || winner == address(0), "Bad winner");
+        require(!usedCheckpoints[matchId][checkpointHash], "Checkpoint used");
+
+        bytes32 digest = _signedMessageHash(
+            keccak256(
+                abi.encode(
+                    ACTION_ORACLE_SETTLE,
+                    address(this),
+                    block.chainid,
+                    matchId,
+                    winner,
+                    checkpointHash
+                )
+            )
+        );
+
+        require(_recoverSigner(digest, oracleSig) == oracle, "Bad oracle signature");
+
+        usedCheckpoints[matchId][checkpointHash] = true;
+        _settleMatch(matchId, winner);
+    }
+
     function _settleMatch(uint256 matchId, address winner) internal {
         Match storage m = matches[matchId];
         require(m.status != MatchStatus.SETTLED && m.status != MatchStatus.CANCELLED, "Finalized");
 
-        uint256 payout = m.stakeAmount * 2;
-
-        m.winner = winner;
         m.status = MatchStatus.SETTLED;
         m.lastActionAt = uint64(block.timestamp);
         m.claimOpenedAt = 0;
         m.claimant = address(0);
 
-        claimablePayouts[matchId][winner] += payout;
-
-        emit MatchSettled(matchId, winner, payout);
+        if (winner == address(0)) {
+            // Draw: split payout
+            claimablePayouts[matchId][m.creator] += m.stakeAmount;
+            claimablePayouts[matchId][m.opponent] += m.stakeAmount;
+            emit MatchSettled(matchId, address(0), m.stakeAmount);
+        } else {
+            // Decisive result: winner takes all
+            uint256 payout = m.stakeAmount * 2;
+            m.winner = winner;
+            claimablePayouts[matchId][winner] += payout;
+            emit MatchSettled(matchId, winner, payout);
+        }
     }
 
     function _isParticipant(Match storage m, address user) internal view returns (bool) {

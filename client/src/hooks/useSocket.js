@@ -59,11 +59,19 @@ export const useSocket = () => {
 
   const roomRef = useCallback((roomId) => doc(db, 'rooms', roomId), [db]);
 
-  const createRoom = useCallback(async (callback) => {
+  const createRoom = useCallback(async (walletAddress, callback) => {
     if (!db || !user) {
       const msg = 'Not connected to Firebase';
       emitError({ message: msg });
       throw new Error(msg);
+    }
+
+    // support calling signature callback as first arg if no wallet address
+    let actualWalletAddress = walletAddress;
+    let actualCallback = callback;
+    if (typeof walletAddress === 'function') {
+      actualCallback = walletAddress;
+      actualWalletAddress = null;
     }
 
     const roomId = generateRoomId();
@@ -84,6 +92,9 @@ export const useSocket = () => {
       playerColors: {
         [user.uid]: colors.creator
       },
+      playerAddresses: actualWalletAddress ? {
+        [user.uid]: actualWalletAddress.toLowerCase()
+      } : {},
       fen: chess.fen(),
       currentTurn: chess.turn(),
       isCheck: false,
@@ -99,7 +110,7 @@ export const useSocket = () => {
     try {
       await setDoc(roomRef(roomId), payload);
       const result = { roomId, color: colors.creator, fen: chess.fen(), timers: payload.timers };
-      callback?.(result);
+      actualCallback?.(result);
       return result;
     } catch (err) {
       const details = err?.message || String(err);
@@ -108,12 +119,22 @@ export const useSocket = () => {
     }
   }, [db, user, roomRef, emitError]);
 
-  const joinRoom = useCallback(async (roomId, callback, errorCallback) => {
+  const joinRoom = useCallback(async (roomId, walletAddress, callback, errorCallback) => {
     if (!db || !user) {
       const message = 'Not connected to Firebase';
       errorCallback?.(message);
       emitError({ message });
       return;
+    }
+
+    // support calling without walletAddress
+    let actualWalletAddress = walletAddress;
+    let actualCallback = callback;
+    let actualErrorCallback = errorCallback;
+    if (typeof walletAddress === 'function') {
+      actualErrorCallback = callback;
+      actualCallback = walletAddress;
+      actualWalletAddress = null;
     }
 
     try {
@@ -150,6 +171,14 @@ export const useSocket = () => {
           black: joinerColor === 'b' ? user.uid : room.players.black
         };
 
+        const existingAddresses = room.playerAddresses || {};
+        const nextAddresses = {
+          ...existingAddresses
+        };
+        if (actualWalletAddress) {
+          nextAddresses[user.uid] = actualWalletAddress.toLowerCase();
+        }
+
         transaction.update(ref, {
           status: 'playing',
           players: nextPlayers,
@@ -157,6 +186,7 @@ export const useSocket = () => {
             ...(room.playerColors || {}),
             [user.uid]: joinerColor
           },
+          playerAddresses: nextAddresses,
           updatedAt: serverTimestamp(),
           lastMoveTime: Date.now()
         });
@@ -168,9 +198,9 @@ export const useSocket = () => {
         };
       });
 
-      callback?.({ roomId, ...joinResult });
+      actualCallback?.({ roomId, ...joinResult });
     } catch (err) {
-      errorCallback?.(err.message);
+      actualErrorCallback?.(err.message);
     }
   }, [db, user, roomRef, emitError]);
 

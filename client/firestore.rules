@@ -2,10 +2,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /rooms/{roomId} {
-      // MVP rule: any authenticated player can read/write room docs.
-      // Tighten this before production by restricting writes to room participants
-      // and validating move/turn transitions server-side.
-      allow read, write: if request.auth != null;
+      // Production rules: restricting access to authenticated users and participants
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && (
+        request.auth.uid == resource.data.players.creator || 
+        request.auth.uid == resource.data.players.joiner ||
+        resource.data.players.joiner == null
+      );
+      allow delete: if request.auth != null && request.auth.uid == resource.data.players.creator;
     }
   }
 }

@@ -3,6 +3,11 @@ import { useSocket } from '../hooks/useSocket';
 import { useWallet } from '../hooks/useWallet';
 import { Plus, Users, ArrowLeft, RefreshCw, Copy, Check, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { CONTRACT_CONFIG } from '../web3/contractConfig';
+import { joinMatchTx } from '../web3/matchService';
+import { ethers } from 'ethers';
 
 const RoomSetup = ({ onJoinRoom }) => {
   const socket = useSocket();
@@ -14,27 +19,27 @@ const RoomSetup = ({ onJoinRoom }) => {
   const [isCopied, setIsCopied] = useState(false);
 
   const handleCreateRoom = () => {
-        if (!socket.isConnected) {
-            setError('Not connected to Firebase. Please refresh.');
-            return;
-        }
-        setIsLoading(true);
-        setError('');
-        (async () => {
-            try {
-                const data = await socket.createRoom();
-                setIsLoading(false);
-                onJoinRoom(data.roomId, data.color);
-            } catch (err) {
-                setIsLoading(false);
-                setError(err?.message || 'Failed to create room');
-            }
-        })();
+    if (!socket.isConnected) {
+      setError('Not connected to Firebase. Please refresh.');
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+    (async () => {
+      try {
+        const data = await socket.createRoom(wallet.address);
+        setIsLoading(false);
+        onJoinRoom(data.roomId, data.color);
+      } catch (err) {
+        setIsLoading(false);
+        setError(err?.message || 'Failed to create room');
+      }
+    })();
   };
 
-  const handleJoinRoom = () => {
+  const handleJoinRoom = async () => {
     if (!socket.isConnected) {
-            setError('Not connected to Firebase. Please refresh.');
+      setError('Not connected to Firebase. Please refresh.');
       return;
     }
     if (!roomInput.trim()) {
@@ -43,17 +48,80 @@ const RoomSetup = ({ onJoinRoom }) => {
     }
     setIsLoading(true);
     setError('');
-    socket.joinRoom(
-      roomInput.trim().toUpperCase(),
-      (data) => {
-        setIsLoading(false);
-        onJoinRoom(data.roomId, data.color);
-      },
-      (errorMessage) => {
-        setIsLoading(false);
-        setError(errorMessage);
+
+    const targetRoomId = roomInput.trim().toUpperCase();
+
+    try {
+      // 1. Fetch room details from Firestore to see if it has an on-chain match
+      const docRef = doc(db, 'rooms', targetRoomId);
+      const snap = await getDoc(docRef);
+      if (!snap.exists()) {
+        throw new Error('Room not found');
       }
-    );
+      const roomData = snap.data();
+
+      // 2. If it is an on-chain match, require joiner to stake
+      if (roomData.onchain?.matchId) {
+        if (!wallet.address) {
+          throw new Error('This is an on-chain wager match. Please connect your wallet first.');
+        }
+
+        const matchId = ethers.BigNumber.from(roomData.onchain.matchId);
+        
+        let stakeWei;
+        try {
+          const provider = new ethers.providers.Web3Provider(window.ethereum);
+          const contract = new ethers.Contract(
+            CONTRACT_CONFIG.contractAddress,
+            CONTRACT_CONFIG.abi,
+            provider
+          );
+          const matchStruct = await contract.matches(matchId);
+          stakeWei = matchStruct.stakeAmount;
+          if (stakeWei.eq(0)) {
+            throw new Error('On-chain match not found or invalid stake amount');
+          }
+        } catch (contractErr) {
+          console.error('Failed to query contract match:', contractErr);
+          throw new Error('Failed to query on-chain match details. Make sure your wallet is on the right network.');
+        }
+
+        const stakeEth = ethers.utils.formatEther(stakeWei);
+        const confirmJoin = window.confirm(`This is an on-chain match with a wager of ${stakeEth} ETH. Would you like to stake ${stakeEth} ETH and join?`);
+        if (!confirmJoin) {
+          setIsLoading(false);
+          return;
+        }
+
+        // Send joinMatch transaction
+        setIsLoading(true);
+        setError('Confirming transaction on-chain...');
+        const receipt = await joinMatchTx(null, matchId, stakeWei);
+        setError('Transaction confirmed! Joining arena...');
+
+        // Update room with opponent join tx
+        await updateDoc(docRef, {
+          'onchain.opponentTx': receipt.transactionHash
+        });
+      }
+
+      // 3. Complete room join in Firestore
+      socket.joinRoom(
+        targetRoomId,
+        wallet.address,
+        (data) => {
+          setIsLoading(false);
+          onJoinRoom(data.roomId, data.color);
+        },
+        (errorMessage) => {
+          setIsLoading(false);
+          setError(errorMessage);
+        }
+      );
+    } catch (err) {
+      setIsLoading(false);
+      setError(err?.message || 'Failed to join room');
+    }
   };
 
   const handleBack = () => {

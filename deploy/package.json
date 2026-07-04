@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "devDependencies": {
-    "hardhat": "^2.17.0",
     "@nomiclabs/hardhat-ethers": "^2.2.3",
-    "ethers": "^5.7.2"
+    "chai": "^6.2.2",
+    "ethers": "^5.7.2",
+    "hardhat": "^2.17.0"
   },
   "scripts": {
     "compile": "hardhat compile",

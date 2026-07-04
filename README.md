@@ -1,56 +1,198 @@
-# 👑 PROCHESS: Decentralized Web3 Chess Platform
+# 👑 PROCHESS: Decentralized Web3 Wager Chess Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Solidity](https://img.shields.io/badge/Solidity-%5E0.8.24-blue)](https://soliditylang.org/)
 [![React](https://img.shields.io/badge/React-18.2-blue)](https://react.dev/)
 [![Firebase](https://img.shields.io/badge/Firebase-12.11-orange)](https://firebase.google.com/)
 [![Hardhat](https://img.shields.io/badge/Hardhat-2.17-yellow)](https://hardhat.org/)
+[![Vite](https://img.shields.io/badge/Vite-5.4-purple)](https://vitejs.dev/)
 
-PROCHESS is a real-time multiplayer chess platform combining the speed of serverless architecture (Vite, React, Firebase Firestore) with the trustless security of Web3 (Solidity smart contracts for match escrows, wagers, and cooperative settlements) and a dedicated off-chain Oracle validator.
+PROCHESS is a hybrid Web2/Web3 multiplayer chess platform. It utilizes serverless architecture (**Vite + React + Firebase Firestore**) for low-latency gameplay and combines it with **Ethereum/EVM Smart Contracts** (`MatchEscrow.sol`) for trustless wagers, cooperative settlements, and automated off-chain Oracle fallback validation.
 
 ---
 
-## 🏗️ Architecture Overview
+## 🏗️ System Architecture
 
-The system is split into three main components:
-1.  **Frontend Client (`/client`)**: A Vite + React application. It uses Firestore for real-time, low-latency off-chain moves, `chess.js` for validation, and `ethers.js` for wallet connection and contract interactions.
-2.  **Smart Contracts (`/contracts` & `/deploy`)**: Built using Hardhat. The `MatchEscrow.sol` contract holds stakes and pays out winnings/refunds.
-3.  **Oracle Server (`/server`)**: A Node.js background service that listens to finished Firestore games, verifies outcomes (checkmate, timeout, draw), generates ECDSA oracle signatures, and uploads them to enable unilateral settlement if an opponent stalls.
+PROCHESS operates on a hybrid architecture to balance Web2's performance (instant move synchronization) with Web3's decentralization (non-custodial funds management):
 
 ```mermaid
-graph TD
-    ClientA[Host Client] -- 1. Stake ETH --> Escrow(MatchEscrow Contract)
-    ClientA -- 2. Moves --> Firestore[Firestore Real-time DB]
-    ClientB[Opponent Client] -- 3. Stake ETH --> Escrow
-    ClientB -- 4. Moves --> Firestore
-    Firestore -- 5. Game End Event --> Oracle[Node.js Oracle Server]
-    Oracle -- 6. Signs Game Result --> Firestore
-    ClientA -- 7a. Propose Settle (Both Sign) --> Escrow
-    ClientB -- 7b. Settle via Oracle (Unilateral Fallback) --> Escrow
+graph TB
+    subgraph Client Layer [Frontend DApps]
+        Host[Host Client]
+        Guest[Guest Client]
+    end
+
+    subgraph Off-Chain Sync [Real-Time DB]
+        Firestore[(Firestore Cloud DB)]
+    end
+
+    subgraph Trusted Oracle Service
+        ServerNode[Node.js Oracle Server]
+    end
+
+    subgraph On-Chain Consensus [EVM Smart Contracts]
+        EscrowContract[MatchEscrow.sol]
+    end
+
+    %% Gameplay interactions
+    Host -- 1. Submit Moves --> Firestore
+    Guest -- 1. Submit Moves --> Firestore
+    Firestore -- 2. Real-time Listeners --> Host
+    Firestore -- 2. Real-time Listeners --> Guest
+
+    %% Web3 connections
+    Host -- 3. createMatch ETH --> EscrowContract
+    Guest -- 4. joinMatch matching ETH --> EscrowContract
+
+    %% Settlement Flows
+    Host -- 5. Sign Consensus Outcome --> Firestore
+    Guest -- 5. Sign Consensus Outcome --> Firestore
+    Host -- 6. proposeResult signatures --> EscrowContract
+
+    %% Oracle Backup Flow
+    Firestore -- 7. Watch game completion --> ServerNode
+    ServerNode -- 8. Verify & ECDSA Sign Outcome --> Firestore
+    Guest -- 9. settleWithOracle oracleSig --> EscrowContract
 ```
+
+---
+
+## 🔄 End-to-End Match Lifecycle & Settlement Sequence
+
+The lifecycle of a wager match follows a strict state transition model. If both players behave honestly, they sign the result cooperatively. If a dispute or disconnect occurs, the off-chain Oracle resolves the escrow unilaterally:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Host as Player A (Host)
+    actor Guest as Player B (Guest)
+    participant FS as Firestore Database
+    participant Oracle as Node.js Oracle Server
+    participant Contract as MatchEscrow Contract
+
+    %% Step 1: Initialization
+    Host->>Contract: createMatch(matchId, stakeAmount)
+    Note over Contract: Status: OPEN
+
+    %% Step 2: Opponent Joining
+    Guest->>Contract: joinMatch(matchId)
+    Note over Contract: Status: ACTIVE
+
+    %% Step 3: Game Loop
+    loop Gameplay Loop
+        Host->>FS: Make chess move (FEN)
+        FS-->>Guest: Sync FEN update
+        Guest->>FS: Make chess move (FEN)
+        FS-->>Host: Sync FEN update
+    end
+
+    %% Step 4: Game Over
+    Note over FS: Game ends (Checkmate / Draw)
+
+    %% Scenario A: Cooperative Settlement (Happy Path)
+    %% Background rects removed for theme compatibility (light/dark mode safety)
+    %% Note markers used to separate scenarios
+    Note over Host, Guest: [Scenario A] Cooperative Settlement Path
+    Host->>FS: Sign result hash (Host Signature)
+    Guest->>FS: Sign result hash (Guest Signature)
+    FS-->>Host: Sync both signatures
+    Host->>Contract: proposeResult(signatures, outcome)
+    Note over Contract: Status: SETTLED
+
+    %% Scenario B: Oracle Settlement (Fallback Path)
+    Note over Host, Oracle: [Scenario B] Oracle Settlement Path (e.g. Guest Quits)
+    FS->>Oracle: Match finished event
+    Oracle->>Oracle: Validate game log & FEN state
+    Oracle->>FS: Upload ECDSA Oracle Signature
+    Host->>Contract: settleWithOracle(oracleSignature, outcome)
+    Note over Contract: Status: SETTLED
+
+    %% Claiming Payouts
+    Host->>Contract: claimPayout(matchId)
+    Contract-->>Host: Transfer Escrow Funds (PULL pattern)
+```
+
+---
+
+## ⚙️ Smart Contract State Machine
+
+The `MatchEscrow.sol` contract enforces strict status-changing rules. Only specific functions can progress the contract to subsequent states:
+
+```mermaid
+stateDiagram-v2
+    [*] --> NONE: Match ID not used
+    NONE --> OPEN: createMatch() (Stakes deposited by Host)
+    OPEN --> ACTIVE: joinMatch() (Stakes deposited by Guest)
+    OPEN --> CANCELLED: cancelOpenMatch() (Refunded to Host)
+    ACTIVE --> SETTLED: proposeResult() (Cooperative double-sig)
+    ACTIVE --> SETTLED: settleWithOracle() (Oracle signed single-sig)
+    SETTLED --> [*]: claimPayout() (Pull pattern withdrawal)
+    CANCELLED --> [*]: claimPayout()
+```
+
+---
+
+## 📊 Data & API Contracts
+
+### 1. Firestore Schema (`/rooms/{roomId}`)
+The real-time database schema aligns player metadata, FEN progress logs, and cryptographic consensus parameters:
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `fen` | `string` | The current board state in Forsyth-Edwards Notation. |
+| `status` | `string` | Game lobby state (`waiting`, `active`, `finished`). |
+| `players` | `map` | Contains Firebase anonymous auth UIDs: `{ creator, joiner }`. |
+| `wallets` | `map` | Ethereum public keys captured upon wallet hook: `{ creator, joiner }`. |
+| `onchain` | `map` | Escrow configurations: `{ matchId, creatorTx, oracleSignature }`. |
+| `proposedSignatures` | `map` | Cryptographic sigs matching player addresses: `{ [ethAddress]: signature }`. |
+
+### 2. Smart Contract Interface (`MatchEscrow.sol`)
+
+The escrow API handles wagers, signature recovery, and payout splits:
+
+| Function | Caller | Gas Type | Required State | Action & Payout Split |
+| :--- | :--- | :--- | :--- | :--- |
+| `createMatch` | Creator | Staked ETH | `NONE` | Escrows wagers, moves status to `OPEN`. |
+| `joinMatch` | Opponent | Staked ETH | `OPEN` | Matches wagers, starts match, moves status to `ACTIVE`. |
+| `proposeResult` | Host/Guest | Call Gas | `ACTIVE` | Validates two-party signatures, awards pot to winner, sets to `SETTLED`. |
+| `settleWithOracle` | Host/Guest | Call Gas | `ACTIVE` | Validates Oracle signature. On draw, splits pot 50/50. Sets status to `SETTLED`. |
+| `cancelOpenMatch` | Creator | Call Gas | `OPEN` | Cancels lobby, marks to `CANCELLED`, refunds stake. |
+| `claimPayout` | Beneficiary | Call Gas | `SETTLED`/`CANCEL` | Transfers claimable balances to wallet (pull-payout pattern). |
+
+### 3. Settlement Hashing & Cryptography
+Both cooperative proposals (`proposeResult`) and oracle overrides (`settleWithOracle`) sign EIP-191 compliant payloads. The inner payload hashes contain:
+$$\text{InnerHash} = \text{keccak256}(\text{abi.encode}(\text{ActionType}, \text{ContractAddress}, \text{ChainId}, \text{MatchId}, \text{WinnerAddress}, \text{CheckpointHash}))$$
+*   **Action Hashing**: `proposeResult` uses `keccak256("PROPOSE_RESULT")`; `settleWithOracle` uses `keccak256("ORACLE_SETTLE")`. This prevents signature type confusion.
+*   **Winner Hash**: Winner is the address of the player to receive the pot. For draws, it is the zero address (`0x0000000000000000000000000000000000000000`).
 
 ---
 
 ## 🗺️ Codebase Map & Key Components
 
-*   [MatchEscrow.sol](file:///d:/web3_chess/contracts/MatchEscrow.sol) - Smart contract managing stake escrows, cooperative settlements, draw splitting, and oracle-based overrides.
-*   [MatchEscrow.test.js](file:///d:/web3_chess/deploy/test/MatchEscrow.test.js) - Unit test suite covering all contract functions, reverts, payouts, and edge cases.
-*   [matchService.js (Client)](file:///d:/web3_chess/client/src/web3/matchService.js) - Frontend Web3 service translating user actions into contract transactions and generating signature payloads.
-*   [RoomSetup.jsx](file:///d:/web3_chess/client/src/components/RoomSetup.jsx) - Lobby management component capturing wallet addresses and enforcing the on-chain match wager stakes.
-*   [GameInfo.jsx](file:///d:/web3_chess/client/src/components/GameInfo.jsx) - Active stats display showing on-chain status, cancellation refund trigger, and claim payout controls.
-*   [GameOverModal.jsx](file:///d:/web3_chess/client/src/components/GameOverModal.jsx) - Consensus modal coordinating end-game results, player signatures, and oracle fallbacks.
-*   [index.js (Oracle Server)](file:///d:/web3_chess/server/src/index.js) - Off-chain backend listening to database state changes to generate trusted signature claims.
+*   [MatchEscrow.sol](./contracts/MatchEscrow.sol) - Smart contract managing stake escrows, cooperative settlements, draw splitting, and oracle-based overrides.
+*   [MatchEscrow.test.js](./deploy/test/MatchEscrow.test.js) - Unit test suite covering all contract functions, reverts, payouts, and edge cases.
+*   [matchService.js (Client)](./client/src/web3/matchService.js) - Frontend Web3 service translating user actions into contract transactions and generating signature payloads.
+*   [RoomSetup.jsx](./client/src/components/RoomSetup.jsx) - Lobby management component capturing wallet addresses and enforcing the on-chain match wager stakes.
+*   [GameInfo.jsx](./client/src/components/GameInfo.jsx) - Active stats display showing on-chain status, cancellation refund trigger, and claim payout controls.
+*   [GameOverModal.jsx](./client/src/components/GameOverModal.jsx) - Consensus modal coordinating end-game results, player signatures, and oracle fallbacks.
+*   [index.js (Oracle Server)](./server/src/index.js) - Off-chain backend listening to database state changes to generate trusted signature claims.
 
 ---
 
-## 🌟 Key Features
+## 🌟 Security Auditing & Design Patterns
 
-*   **⚡ Real-Time Chess**: Powered by `react-chessboard` and `chess.js` with instant move updates synced over real-time Firestore listeners.
-*   **🔐 On-Chain Match Escrow**: Trustless wagering on games. Creator stakes ETH to open a match; opponent matches the stake to activate the match.
-*   **🤝 Draw/Stalemate Split**: The contract handles decisive results (winner-take-all) and draws (automatic 50/50 stake splits).
-*   **✍️ Cooperative Settlement**: Fast-path settlement where both players sign off on the end FEN/winner state and submit it to the contract.
-*   **🔮 Oracle Settlement Fallback**: If a player times out, drops connection, or refuses to sign, the Oracle server validates the Firestore state and issues a single-signature certificate enabling the honest player to claim the escrow.
-*   **🛡️ Hardened Security**: Firestore security rules restrict read/write access to room participants.
+### 1. Reentrancy Prevention
+The smart contract implements the **Checks-Effects-Interactions** pattern and a strict Pull-Payout design. Players never receive funds automatically during settlement; instead, funds are allocated to the `claimablePayouts` state variable. Users must explicitly call `claimPayout()` to withdraw funds, protecting the contract from reentrancy exploits.
+
+### 2. Signature Replay Protection
+All off-chain signature payloads (cooperative and oracle) are hashed using:
+*   `CONTRACT_ADDRESS` to prevent signature replays across different deployment instances.
+*   `CHAIN_ID` to block cross-network replay attacks (e.g. reusing testnet signatures on Mainnet).
+*   `MATCH_ID` to bind the signature to a single game instance.
+*   `ACTION_HASH` (different prefixes for cooperative proposal vs oracle settlement) to prevent one signature type from being abused in another method.
+
+### 3. Draw Split & Refund Logic
+If a game is resolved as a draw or stalemate, the contract splits the pot 50/50 and credits both addresses' withdrawal balances.
 
 ---
 
@@ -59,9 +201,9 @@ graph TD
 Follow these steps to run the entire stack locally:
 
 ### Step 1: Firebase Configuration
-1.  Enable **Anonymous Sign-In** under Authentication $\rightarrow$ Sign-in method.
+1.  Enable **Anonymous Sign-In** under Authentication -> Sign-in method.
 2.  Enable **Cloud Firestore Database**.
-3.  Deploy the Firestore security rules from [client/firestore.rules](file:///d:/web3_chess/client/firestore.rules).
+3.  Deploy the Firestore security rules from [client/firestore.rules](./client/firestore.rules).
 4.  Copy the web app credentials from your Firebase console settings.
 
 ### Step 2: Spin Up Local Blockchain & Deploy Contract
@@ -146,7 +288,7 @@ To simulate two players staking and playing locally:
 > [!TIP]
 > **MetaMask Transaction Nonce Issue**:
 > - When running local Hardhat node repeatedly, your MetaMask account nonce might get out of sync causing transactions to stall.
-> - **Solution**: Go to MetaMask Settings $\rightarrow$ Advanced $\rightarrow$ **Clear activity tab data** (or "Reset Account") to clear the cached transaction history.
+> - **Solution**: Go to MetaMask Settings $\rightarrow$ Advanced $\rightarrow$ **Clear activity tab data** (or "Reset Account") to clear the cached transaction history. Or delete the network and re-add it under a fresh name.
 
 > [!WARNING]
 > **Firebase Connection Error**:

@@ -45,3 +45,11 @@ coverage/
 # Temporary files
 *.tmp
 .cache/
+
+# Hardhat compile caches and artifacts
+deploy/artifacts/
+deploy/cache/
+deploy/node_modules/
+
+# Backend dependencies
+server/node_modules/

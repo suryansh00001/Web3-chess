@@ -119,15 +119,32 @@ sequenceDiagram
 The `MatchEscrow.sol` contract enforces strict status-changing rules. Only specific functions can progress the contract to subsequent states:
 
 ```mermaid
-stateDiagram-v2
-    [*] --> NONE: Match ID not used
-    NONE --> OPEN: createMatch() (Stakes deposited by Host)
-    OPEN --> ACTIVE: joinMatch() (Stakes deposited by Guest)
-    OPEN --> CANCELLED: cancelOpenMatch() (Refunded to Host)
-    ACTIVE --> SETTLED: proposeResult() (Cooperative double-sig)
-    ACTIVE --> SETTLED: settleWithOracle() (Oracle signed single-sig)
-    SETTLED --> [*]: claimPayout() (Pull pattern withdrawal)
-    CANCELLED --> [*]: claimPayout()
+flowchart LR
+    %% States
+    Uninitialized([Uninitialized])
+    NONE[NONE: Match Free]
+    OPEN[OPEN: Host Staked]
+    ACTIVE[ACTIVE: Live Match]
+    SETTLED[SETTLED: Settle Consensus]
+    CANCELLED[CANCELLED: Refunded]
+    End([Terminated])
+
+    %% Transitions
+    Uninitialized --> NONE
+    NONE -->|createMatch| OPEN
+    OPEN -->|joinMatch| ACTIVE
+    OPEN -->|cancelOpenMatch| CANCELLED
+    ACTIVE -->|proposeResult / settleWithOracle| SETTLED
+    SETTLED -->|claimPayout| End
+    CANCELLED -->|claimPayout| End
+
+    %% Styling
+    classDef default fill:#111827,stroke:#374151,stroke-width:1px,color:#f3f4f6;
+    classDef state fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc;
+    classDef terminal fill:#1f2937,stroke:#6b7280,stroke-width:1px,color:#d1d5db;
+
+    class NONE,OPEN,ACTIVE,SETTLED,CANCELLED state;
+    class Uninitialized,End terminal;
 ```
 
 ---

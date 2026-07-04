@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { Trophy, Clock, XCircle, Home, RotateCcw } from 'lucide-react';
 import { useWallet } from '../hooks/useWallet';
-import { signProposeResult, proposeResultTx, settleWithOracleTx } from '../web3/matchService';
+import { signProposeResult, proposeResultTx, settleWithOracleTx, claimPayoutTx } from '../web3/matchService';
 import { CONTRACT_CONFIG } from '../web3/contractConfig';
 import { db } from '../lib/firebase';
 import { doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
@@ -12,7 +12,32 @@ const GameOverModal = ({ isVisible, result, winner, onRestart, onLeave, roomId, 
   const [signatures, setSignatures] = useState({});
   const [loading, setLoading] = useState(false);
   const [roomData, setRoomData] = useState(null);
+  const [claimableBalance, setClaimableBalance] = useState(ethers.BigNumber.from(0));
   const wallet = useWallet();
+
+  // Query claimable balance from smart contract
+  useEffect(() => {
+    if (!wallet.address || !roomData?.onchain?.matchId || !isVisible) return;
+    const checkClaimable = async () => {
+      try {
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const contract = new ethers.Contract(
+          CONTRACT_CONFIG.contractAddress,
+          CONTRACT_CONFIG.abi,
+          provider
+        );
+        const matchId = ethers.BigNumber.from(roomData.onchain.matchId);
+        const amount = await contract.claimablePayouts(matchId, wallet.address);
+        setClaimableBalance(amount);
+      } catch (e) {
+        console.error('Error checking claimable:', e);
+      }
+    };
+
+    checkClaimable();
+    const interval = setInterval(checkClaimable, 5000);
+    return () => clearInterval(interval);
+  }, [wallet.address, roomData?.onchain?.matchId, isVisible]);
 
   useEffect(() => {
     if (!isVisible || !roomId) return;
@@ -148,6 +173,21 @@ const GameOverModal = ({ isVisible, result, winner, onRestart, onLeave, roomId, 
     }
   };
 
+  const handleClaim = async () => {
+    try {
+      setLoading(true);
+      const matchId = ethers.BigNumber.from(roomData.onchain.matchId);
+      await claimPayoutTx(null, matchId);
+      alert('Payout claimed successfully!');
+      setClaimableBalance(ethers.BigNumber.from(0));
+    } catch (e) {
+      console.error(e);
+      alert('Claim failed: ' + (e.message || e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -221,18 +261,30 @@ const GameOverModal = ({ isVisible, result, winner, onRestart, onLeave, roomId, 
               </div>
 
               <div className="flex flex-col gap-3">
-                <div className="flex gap-3">
-                  <button onClick={handleSign} disabled={!wallet.address || loading} className="btn-primary flex-1 py-3 rounded-xl text-sm font-bold">
-                    {wallet.address ? (loading ? 'SIGNING...' : 'SIGN RESULT') : 'CONNECT WALLET'}
+                {claimableBalance.gt(0) ? (
+                  <button
+                    onClick={handleClaim}
+                    disabled={loading}
+                    className="w-full py-4 bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-black rounded-xl transition-all flex items-center justify-center gap-2 animate-pulse text-base"
+                  >
+                    🏆 CLAIM PAYOUT ({ethers.utils.formatEther(claimableBalance)} ETH)
                   </button>
-                  <button onClick={handleProposeOnChain} disabled={loading || Object.keys(signatures).length < 2} className="px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-bold flex-1 disabled:opacity-50 transition-all">
-                    PROPOSE ON-CHAIN
-                  </button>
-                </div>
-                {roomData?.onchain?.oracleSignature && (
-                  <button onClick={handleOracleSettle} disabled={loading} className="w-full py-3 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-400 font-bold rounded-xl transition-all text-sm">
-                    SETTLE VIA ORACLE (FALLBACK)
-                  </button>
+                ) : (
+                  <>
+                    <div className="flex gap-3">
+                      <button onClick={handleSign} disabled={!wallet.address || loading} className="btn-primary flex-1 py-3 rounded-xl text-sm font-bold">
+                        {wallet.address ? (loading ? 'SIGNING...' : 'SIGN RESULT') : 'CONNECT WALLET'}
+                      </button>
+                      <button onClick={handleProposeOnChain} disabled={loading || Object.keys(signatures).length < 2} className="px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-bold flex-1 disabled:opacity-50 transition-all">
+                        PROPOSE ON-CHAIN
+                      </button>
+                    </div>
+                    {roomData?.onchain?.oracleSignature && (
+                      <button onClick={handleOracleSettle} disabled={loading} className="w-full py-3 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-400 font-bold rounded-xl transition-all text-sm">
+                        SETTLE VIA ORACLE (FALLBACK)
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>

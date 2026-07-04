@@ -1,4 +1,4 @@
-# 👑 PROCHESS: Decentralized Web3 Wager Chess Platform
+![PROCHESS Banner](./banner.png)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Solidity](https://img.shields.io/badge/Solidity-%5E0.8.24-blue)](https://soliditylang.org/)
